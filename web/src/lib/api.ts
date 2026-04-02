@@ -110,12 +110,14 @@ export interface SignalData {
   stop_loss: number;
   score: number;
   reason: string;
+  tier: "action" | "watch" | "reference" | "noise";
 }
 
 export interface SignalsResponse {
   count: number;
   signals: SignalData[];
   summary: Record<string, number>;
+  tiers?: Record<string, number>;
   generated_at?: string;
 }
 

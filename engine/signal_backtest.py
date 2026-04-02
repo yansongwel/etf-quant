@@ -69,7 +69,7 @@ def backtest_signals(
 
         for i in range(start_idx, total_rows - eval_horizon):
             current_price = float(df["close"].iloc[i])
-            direction, score = score_at_index(factors, i, current_price, market_regime=regime)
+            direction, score, _ = score_at_index(factors, i, current_price, market_regime=regime)
 
             # T+1 return (for comparison)
             next_close = float(df["close"].iloc[i + 1])

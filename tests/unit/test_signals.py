@@ -300,7 +300,7 @@ class TestScoreAtIndex:
 
         df = _make_ohlcv(days=150, trend=0.003)
         factors = precompute_factors(df)
-        direction, score = score_at_index(factors, 140, float(df["close"].iloc[140]))
+        direction, score, _sell_n = score_at_index(factors, 140, float(df["close"].iloc[140]))
         assert isinstance(direction, SignalDirection)
         assert isinstance(score, float)
 
@@ -310,8 +310,8 @@ class TestScoreAtIndex:
         df = _make_ohlcv(days=150, trend=0.003)
         factors = precompute_factors(df)
         price = float(df["close"].iloc[140])
-        _, score_neutral = score_at_index(factors, 140, price, market_regime=None)
-        _, score_bear = score_at_index(factors, 140, price, market_regime="bear")
+        _, score_neutral, _ = score_at_index(factors, 140, price, market_regime=None)
+        _, score_bear, _ = score_at_index(factors, 140, price, market_regime="bear")
         # Bear regime should suppress positive scores
         if score_neutral > 0:
             assert score_bear <= score_neutral
@@ -322,8 +322,8 @@ class TestScoreAtIndex:
         df = _make_ohlcv(days=150, trend=-0.003)
         factors = precompute_factors(df)
         price = float(df["close"].iloc[140])
-        _, score_neutral = score_at_index(factors, 140, price, market_regime=None)
-        _, score_bull = score_at_index(factors, 140, price, market_regime="bull")
+        _, score_neutral, _ = score_at_index(factors, 140, price, market_regime=None)
+        _, score_bull, _ = score_at_index(factors, 140, price, market_regime="bull")
         # Bull regime should reduce negative scores
         if score_neutral < 0:
             assert score_bull >= score_neutral
@@ -336,7 +336,7 @@ class TestScoreAtIndex:
             df = _make_ohlcv(days=200, trend=trend)
             factors = precompute_factors(df)
             idx = 180
-            direction, score = score_at_index(factors, idx, float(df["close"].iloc[idx]))
+            direction, score, _sell_n = score_at_index(factors, idx, float(df["close"].iloc[idx]))
             assert isinstance(score, float)
             assert -100 <= score <= 100
             assert isinstance(direction, SignalDirection)
@@ -573,7 +573,7 @@ class TestScoreAtIndexExtremePaths:
         factors = precompute_factors(df)
         idx = len(df) - 1
         rsi_val = float(factors["rsi_14"].iloc[idx])
-        direction, score = score_at_index(factors, idx, float(df["close"].iloc[idx]))
+        direction, score, _sell_n = score_at_index(factors, idx, float(df["close"].iloc[idx]))
         # With strong uptrend, RSI should be high
         assert rsi_val > 60
         assert isinstance(score, float)
@@ -586,7 +586,7 @@ class TestScoreAtIndexExtremePaths:
         factors = precompute_factors(df)
         idx = len(df) - 1
         hvol_val = float(factors["hvol_20d"].iloc[idx])
-        direction, score = score_at_index(factors, idx, float(df["close"].iloc[idx]))
+        direction, score, _sell_n = score_at_index(factors, idx, float(df["close"].iloc[idx]))
         assert hvol_val > 0.3  # High vol from 6% daily std
         assert isinstance(score, float)
 
@@ -597,7 +597,7 @@ class TestScoreAtIndexExtremePaths:
         df = _make_extreme_ohlcv(days=200, mfi_level="oversold")
         factors = precompute_factors(df)
         idx = len(df) - 1
-        direction, score = score_at_index(factors, idx, float(df["close"].iloc[idx]))
+        direction, score, _sell_n = score_at_index(factors, idx, float(df["close"].iloc[idx]))
         assert isinstance(direction, SignalDirection)
 
     def test_smart_flow_bullish_confirmation(self) -> None:
@@ -607,7 +607,7 @@ class TestScoreAtIndexExtremePaths:
         df = _make_extreme_ohlcv(days=200, trend=0.005, smart_flow="bullish")
         factors = precompute_factors(df)
         idx = len(df) - 1
-        direction, score = score_at_index(factors, idx, float(df["close"].iloc[idx]))
+        direction, score, _sell_n = score_at_index(factors, idx, float(df["close"].iloc[idx]))
         assert isinstance(score, (int, float))
 
     def test_smart_flow_bearish_confirmation(self) -> None:
@@ -617,7 +617,7 @@ class TestScoreAtIndexExtremePaths:
         df = _make_extreme_ohlcv(days=200, trend=-0.005, smart_flow="bearish")
         factors = precompute_factors(df)
         idx = len(df) - 1
-        direction, score = score_at_index(factors, idx, float(df["close"].iloc[idx]))
+        direction, score, _sell_n = score_at_index(factors, idx, float(df["close"].iloc[idx]))
         assert isinstance(score, float)
 
     def test_strong_buy_threshold(self) -> None:
@@ -641,7 +641,7 @@ class TestScoreAtIndexExtremePaths:
         )
         factors = precompute_factors(df2)
         idx = len(df2) - 1
-        direction, score = score_at_index(factors, idx, float(df2["close"].iloc[idx]))
+        direction, score, _sell_n = score_at_index(factors, idx, float(df2["close"].iloc[idx]))
         # Score may or may not reach 25, but direction should be valid
         assert direction in list(SignalDirection)
         if score >= 25:
@@ -655,9 +655,9 @@ class TestScoreAtIndexExtremePaths:
         factors = precompute_factors(df)
         idx = 180
         price = float(df["close"].iloc[idx])
-        _, score_none = score_at_index(factors, idx, price, market_regime=None)
-        _, score_bear = score_at_index(factors, idx, price, market_regime="bear")
-        _, score_bull = score_at_index(factors, idx, price, market_regime="bull")
+        _, score_none, _ = score_at_index(factors, idx, price, market_regime=None)
+        _, score_bear, _ = score_at_index(factors, idx, price, market_regime="bear")
+        _, score_bull, _ = score_at_index(factors, idx, price, market_regime="bull")
         if score_none > 0:
             assert score_bear <= score_none
         if score_none < 0:
@@ -672,7 +672,7 @@ class TestScoreAtIndexExtremePaths:
         factors = precompute_factors(df)
         idx = 180
         price = float(df["close"].iloc[idx])
-        direction, score = score_at_index(factors, idx, price, market_regime="bear")
+        direction, score, _sell_n = score_at_index(factors, idx, price, market_regime="bear")
         # May or may not trigger reclassification, but path is valid
         assert direction in list(SignalDirection)
 
@@ -684,7 +684,7 @@ class TestScoreAtIndexExtremePaths:
         factors = precompute_factors(df)
         idx = 180
         price = float(df["close"].iloc[idx])
-        direction, score = score_at_index(factors, idx, price, market_regime="bear")
+        direction, score, _sell_n = score_at_index(factors, idx, price, market_regime="bear")
         # If score > 12 but < 3 bullish factors → downgraded to HOLD
         assert direction in list(SignalDirection)
 
@@ -696,7 +696,7 @@ class TestScoreAtIndexExtremePaths:
         factors = precompute_factors(df)
         idx = 180
         price = float(df["close"].iloc[idx])
-        direction, score = score_at_index(factors, idx, price)
+        direction, score, _sell_n = score_at_index(factors, idx, price)
         assert direction in list(SignalDirection)
 
 
@@ -967,7 +967,7 @@ class TestScoreAtIndexDirectPaths:
                 "smart_flow_20d": 0.5,
             }
         )
-        direction, score = score_at_index(factors, 10, 3.0)
+        direction, score, _sell_n = score_at_index(factors, 10, 3.0)
         # V4.0: ret_5d(-0.05)→+8, mom_accel(0.04)→+3, smf should add more
         assert score >= 5
 
@@ -984,7 +984,7 @@ class TestScoreAtIndexDirectPaths:
                 "rsi_divergence": 1.0,  # S3: RSI divergence
             }
         )
-        direction, score = score_at_index(factors, 10, 3.0)
+        direction, score, _sell_n = score_at_index(factors, 10, 3.0)
         assert score < 0
 
     def test_bear_regime_positive_score_suppression(self) -> None:
@@ -1003,8 +1003,8 @@ class TestScoreAtIndexDirectPaths:
                 "price_pctile_120d": 0.1,
             }
         )
-        _, score_neutral = score_at_index(factors, 10, 3.0, market_regime=None)
-        _, score_bear = score_at_index(factors, 10, 3.0, market_regime="bear")
+        _, score_neutral, _ = score_at_index(factors, 10, 3.0, market_regime=None)
+        _, score_bear, _ = score_at_index(factors, 10, 3.0, market_regime="bear")
         assert score_neutral > 0
         assert score_bear < score_neutral
 
@@ -1023,7 +1023,7 @@ class TestScoreAtIndexDirectPaths:
                 "volume_ratio": 0.6,  # low volume (supports death cross)
             }
         )
-        direction, score = score_at_index(factors, 10, 3.0, market_regime="bear")
+        direction, score, _sell_n = score_at_index(factors, 10, 3.0, market_regime="bear")
         assert score < -10
         assert direction in (SignalDirection.SELL, SignalDirection.STRONG_SELL)
 
@@ -1038,7 +1038,7 @@ class TestScoreAtIndexDirectPaths:
                 "rsi_divergence": 1.0,  # S3: RSI divergence
             }
         )
-        direction, score = score_at_index(factors, 10, 3.0)
+        direction, score, _sell_n = score_at_index(factors, 10, 3.0)
         assert direction == SignalDirection.SELL
         assert score < 0
 
@@ -1053,7 +1053,7 @@ class TestScoreAtIndexDirectPaths:
                 # Everything else neutral → only 1 bullish factor
             }
         )
-        direction, score = score_at_index(factors, 10, 3.0)
+        direction, score, _sell_n = score_at_index(factors, 10, 3.0)
         if score >= 20:
             # Should be downgraded because < 3 bullish factors
             assert direction == SignalDirection.HOLD
@@ -1068,7 +1068,7 @@ class TestScoreAtIndexDirectPaths:
                 "atr_trail_stop": 1.0,  # S1: only one structural signal
             }
         )
-        direction, score = score_at_index(factors, 10, 3.0)
+        direction, score, _sell_n = score_at_index(factors, 10, 3.0)
         # 1 signal not enough for SELL direction
         assert direction == SignalDirection.HOLD
 
@@ -1084,8 +1084,8 @@ class TestScoreAtIndexDirectPaths:
                 "vol_climax": 1.0,
             }
         )
-        _, score_none = score_at_index(factors, 10, 3.0, market_regime=None)
-        _, score_bull = score_at_index(factors, 10, 3.0, market_regime="bull")
+        _, score_none, _ = score_at_index(factors, 10, 3.0, market_regime=None)
+        _, score_bull, _ = score_at_index(factors, 10, 3.0, market_regime="bull")
         # Both should be negative from structural signals
         assert score_none < 0
         assert score_bull < 0

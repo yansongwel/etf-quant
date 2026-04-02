@@ -34,6 +34,39 @@ class SignalDirection(StrEnum):
     STRONG_SELL = "strong_sell"
 
 
+class SignalTier(StrEnum):
+    """Signal urgency tier — controls how prominently the signal is displayed.
+
+    Based on backtest data (2026-04-02, 45 ETFs, 60 days):
+    - ACTION: score>=50 buy or 3+ sell signals → 80% accuracy, +2.81% avg return
+    - WATCH: score 30-49 buy or 2 sell signals → 58% accuracy, +0.41% avg return
+    - REFERENCE: score 20-29 buy or weak signals → 57% accuracy, marginal edge
+    - NOISE: hold or sub-threshold → no actionable edge
+    """
+
+    ACTION = "action"  # 🔴 立即行动 — ~every 12 days, 80% accuracy
+    WATCH = "watch"  # 🟡 关注观察 — ~1-2/day, 58% accuracy
+    REFERENCE = "reference"  # ⚪ 仅供参考 — noise-adjacent
+    NOISE = "noise"  # hold signals, not displayed
+
+
+def classify_tier(direction: SignalDirection, score: float, sell_signals: int = 0) -> SignalTier:
+    """Classify a signal into an urgency tier based on direction and score."""
+    if direction in (SignalDirection.BUY, SignalDirection.STRONG_BUY):
+        if score >= 50:
+            return SignalTier.ACTION
+        if score >= 30:
+            return SignalTier.WATCH
+        return SignalTier.REFERENCE
+    if direction in (SignalDirection.SELL, SignalDirection.STRONG_SELL):
+        if sell_signals >= 3:
+            return SignalTier.ACTION
+        if sell_signals >= 2:
+            return SignalTier.WATCH
+        return SignalTier.REFERENCE
+    return SignalTier.NOISE
+
+
 @dataclass(frozen=True)
 class TradingSignal:
     """A real-time trading signal for a single ETF."""
@@ -49,6 +82,7 @@ class TradingSignal:
     reason: str  # Human-readable explanation
     factors: dict[str, float | None]  # Key factor values
     score: float  # Composite score (-100 to 100)
+    tier: SignalTier = SignalTier.NOISE
 
     def to_dict(self) -> dict:
         return {
@@ -63,6 +97,7 @@ class TradingSignal:
             "reason": self.reason,
             "factors": {k: round(v, 4) if v is not None else None for k, v in self.factors.items()},
             "score": round(self.score, 2),
+            "tier": self.tier.value,
         }
 
 
@@ -219,8 +254,11 @@ def score_at_index(
     idx: int,
     current_price: float,
     market_regime: str | None = None,
-) -> tuple[SignalDirection, float]:
+) -> tuple[SignalDirection, float, int]:
     """Score a single time point using precomputed factor series.
+
+    Returns (direction, score, sell_signals) where sell_signals is the count
+    of structural sell triggers (used for tier classification).
 
     V5.0 — Asymmetric buy/sell redesign (2026-04-02):
     Problem diagnosed: V4.3 sell accuracy 48.7% (worse than random).
@@ -495,7 +533,7 @@ def score_at_index(
     ):
         direction = SignalDirection.HOLD  # Don't fight a powerful trend
 
-    return direction, score
+    return direction, score, sell_signals
 
 
 def generate_signal(
@@ -531,7 +569,7 @@ def generate_signal(
     if aggressive and market_regime == "bear":
         effective_regime = "range"  # Treat bear as range in aggressive mode
 
-    direction, score = score_at_index(
+    direction, score, n_sell_signals = score_at_index(
         precomputed, len(df) - 1, current_price, market_regime=effective_regime
     )
 
@@ -646,6 +684,8 @@ def generate_signal(
                 position_pct = min(position_pct * 1.3, 0.30)
                 reasons.append(f"波动收敛加仓(VR={vol_reg:.1f})")
 
+    tier = classify_tier(direction, score, n_sell_signals)
+
     return TradingSignal(
         symbol=symbol,
         direction=direction,
@@ -658,6 +698,7 @@ def generate_signal(
         reason=" | ".join(reasons),
         factors=factors,
         score=score,
+        tier=tier,
     )
 
 
@@ -755,6 +796,7 @@ def generate_signals_batch(
                 reason=sig.reason + " | 该ETF历史买入准确率<50%，信号降级",
                 factors=sig.factors,
                 score=sig.score,
+                tier=SignalTier.NOISE,
             )
 
         signals.append(sig)

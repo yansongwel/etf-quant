@@ -121,7 +121,7 @@ class TestBacktestSignals:
         def _fake_score(*_args: object, **_kwargs: object) -> tuple:
             idx = call_count["n"] % len(scores)
             call_count["n"] += 1
-            return (SignalDirection.BUY, scores[idx])
+            return (SignalDirection.BUY, scores[idx], 0)
 
         mock_score.side_effect = _fake_score
 
@@ -170,7 +170,7 @@ class TestBacktestSignals:
             direction = (
                 SignalDirection.STRONG_BUY if call_count["n"] % 2 == 0 else SignalDirection.BUY
             )
-            return (direction, 60.0)
+            return (direction, 60.0, 0)
 
         mock_score.side_effect = _fake_score
 

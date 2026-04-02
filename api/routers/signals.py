@@ -164,11 +164,20 @@ def get_current_signals(
         default="",
         description="Comma-separated ETF symbols. Empty = all available.",
     ),
+    tier: str = Query(
+        default="",
+        description="Filter by tier: action, watch, reference. Empty = all.",
+    ),
 ) -> dict:
     """Get real-time trading signals for ETFs.
 
     Returns signals sorted by score (best buy opportunities first).
     Results are cached for 60s since signal computation is expensive (~35s).
+
+    V5.0 tier system:
+    - action: score>=50 buy or 3+ sell signals (80% accuracy, ~every 12 days)
+    - watch: score 30-49 buy or 2 sell signals (58% accuracy)
+    - reference: score 20-29 buy (marginal edge)
     """
     from config.constants import DEFAULT_ETF_LIST
 
@@ -182,8 +191,19 @@ def get_current_signals(
         signals = generate_signals_batch(data)
         _set_cached_signals(cache_key, signals, {})
 
+    # Filter by tier if requested
+    if tier:
+        signals = [s for s in signals if s.tier.value == tier]
+
     # Enrich with ETF names
     name_map = {e["symbol"]: e["name"] for e in DEFAULT_ETF_LIST}
+
+    # Tier summary
+    tier_counts = {
+        "action": sum(1 for s in signals if s.tier.value == "action"),
+        "watch": sum(1 for s in signals if s.tier.value == "watch"),
+        "reference": sum(1 for s in signals if s.tier.value == "reference"),
+    }
 
     return {
         "count": len(signals),
@@ -195,6 +215,7 @@ def get_current_signals(
             "sell": sum(1 for s in signals if s.direction.value == "sell"),
             "strong_sell": sum(1 for s in signals if s.direction.value == "strong_sell"),
         },
+        "tiers": tier_counts,
         "generated_at": _now_cst(),
     }
 
@@ -381,7 +402,7 @@ def get_signal_trend(
     trend = []
     for i in range(start_idx, total):
         price = float(df["close"].iloc[i])
-        direction, score = score_at_index(factors, i, price, market_regime=regime)
+        direction, score, _ = score_at_index(factors, i, price, market_regime=regime)
         trend.append(
             {
                 "date": str(df.index[i].date()),

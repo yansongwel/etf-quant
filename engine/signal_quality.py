@@ -54,7 +54,7 @@ def compute_signal_quality(lookback_days: int = 90) -> dict[str, dict]:
         start_idx = max(total - lookback_days, 60)
         for i in range(start_idx, total - 5):
             price = float(df["close"].iloc[i])
-            direction, _ = score_at_index(factors, i, price, market_regime=regime)
+            direction, _, _ = score_at_index(factors, i, price, market_regime=regime)
             fwd_ret = (float(df["close"].iloc[i + 5]) - price) / price
 
             if direction.value in ("buy", "strong_buy"):
