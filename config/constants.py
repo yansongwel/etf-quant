@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 # ─── Version ──────────────────────────────────────────
-PLATFORM_VERSION = "5.1"
-# V5.1: ETF blacklist + tightened thresholds — strong_buy T+5 68%, score 30-50 T+5 69%
-SIGNAL_ENGINE_VERSION = "5.1"
+PLATFORM_VERSION = "5.2"
+# V5.2: Data-driven sell (reversal_in_trend 76% at T+10), holding_days, removed noise signals
+SIGNAL_ENGINE_VERSION = "5.2"
 
 # ─── Column name mapping: AkShare Chinese → internal English ────────────
 # Used by collectors to normalize raw DataFrames before storage.

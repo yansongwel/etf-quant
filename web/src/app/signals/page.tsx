@@ -35,14 +35,14 @@ const TIER_CONFIG: Record<string, { label: string; icon: string; color: string; 
     icon: "🔴",
     color: "#ef4444",
     bg: "rgba(239,68,68,0.08)",
-    desc: "高置信信号 · 准确率≈80% · 建议5日内操作",
+    desc: "高置信信号 · 买入持有3-5天(T+5≈68%) · 卖出10天内减仓(T+10≈76%)",
   },
   watch: {
     label: "关注观察",
     icon: "🟡",
     color: "#eab308",
     bg: "rgba(234,179,8,0.08)",
-    desc: "中等置信 · 准确率≈58% · 纳入观察列表",
+    desc: "中等置信 · 准确率≈58% · 纳入观察列表等待升级",
   },
   reference: {
     label: "仅供参考",
@@ -437,7 +437,7 @@ export default function SignalsPage() {
                 <span>{TIER_CONFIG[s.tier]?.icon}</span>
                 <span style={{ color: TIER_CONFIG[s.tier]?.color, fontWeight: 600 }}>{TIER_CONFIG[s.tier]?.label}</span>
                 <span style={{ color: "var(--text-tertiary)", marginLeft: "auto" }}>
-                  {isBuy && s.score >= 50 ? "准确率≈80%" : isBuy && s.score >= 30 ? "准确率≈58%" : isSell ? "结构性卖出" : ""}
+                  {isBuy ? `建议持有${s.holding_days || 5}天` : isSell ? `建议${s.holding_days || 10}天内减仓` : ""}
                 </span>
               </div>
 

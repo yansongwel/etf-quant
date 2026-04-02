@@ -302,7 +302,7 @@ export default function Sidebar() {
           </div>
         )}
         <div style={{ fontSize: "0.65rem", color: "var(--text-tertiary)", marginBottom: 2 }}>
-          v{platformVersion || "5.1"}{etfCount > 0 ? ` · ${etfCount} ETFs` : ""}
+          v{platformVersion || "5.2"}{etfCount > 0 ? ` · ${etfCount} ETFs` : ""}
         </div>
         {signalVersion && (
           <div style={{ fontSize: "0.6rem", color: "var(--accent, #4f8ff7)", marginBottom: 6, fontFamily: "monospace" }}>

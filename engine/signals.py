@@ -59,11 +59,10 @@ def classify_tier(direction: SignalDirection, score: float, sell_signals: int = 
             return SignalTier.WATCH
         return SignalTier.REFERENCE
     if direction in (SignalDirection.SELL, SignalDirection.STRONG_SELL):
-        if sell_signals >= 3:
-            return SignalTier.ACTION
+        # V5.2: sell tier based on reversal_in_trend + confirmations
         if sell_signals >= 2:
-            return SignalTier.WATCH
-        return SignalTier.REFERENCE
+            return SignalTier.ACTION  # reversal_in_trend + confirmation = 76% T+10
+        return SignalTier.WATCH  # single reversal_in_trend = 60% T+5
     return SignalTier.NOISE
 
 
@@ -83,6 +82,7 @@ class TradingSignal:
     factors: dict[str, float | None]  # Key factor values
     score: float  # Composite score (-100 to 100)
     tier: SignalTier = SignalTier.NOISE
+    holding_days: int = 5  # Recommended holding period in trading days
 
     def to_dict(self) -> dict:
         return {
@@ -98,6 +98,7 @@ class TradingSignal:
             "factors": {k: round(v, 4) if v is not None else None for k, v in self.factors.items()},
             "score": round(self.score, 2),
             "tier": self.tier.value,
+            "holding_days": self.holding_days,
         }
 
 
@@ -424,88 +425,57 @@ def score_at_index(
             pass
 
     # ═══════════════════════════════════════════════════════
-    # SELL SCORING — structural trend-breakdown signals ONLY
-    # V5.0: No more "overbought = sell". Only sell when trend BREAKS.
+    # SELL SCORING — V5.2 data-driven (only proven signals)
+    # Backtested 2026-04-02: individual signal accuracy at T+10:
+    #   reversal_in_trend: 76% ← ONLY reliable signal
+    #   death_cross+缩量:  62% ← moderate, used as confirmation
+    #   ATR stop: 47% ← REMOVED (noise)
+    #   RSI div: 49% ← REMOVED (noise)
+    #   vol_climax: 40% ← REMOVED (anti-signal)
+    #   mom_decel: 47% ← REMOVED (noise)
     # ═══════════════════════════════════════════════════════
     sell_score = 0.0
-    sell_signals = 0  # count of independent structural sell triggers
+    sell_signals = 0
 
-    # --- S1: ATR trailing stop break (strongest structural signal) ---
-    atr_stop = _safe_at(factors.get("atr_trail_stop", pd.Series(dtype=float)), idx)
-    if atr_stop is not None and atr_stop > 0.5:
-        sell_score -= 10
+    # --- S1: Reversal-in-trend sell (76% at T+10, STRONGEST) ---
+    # Rally in a confirmed downtrend → high-probability sell
+    if rit is not None and rit < -0.5:
+        sell_score -= 12
         sell_signals += 1
 
-    # --- S2: MA death cross + volume decline (trend reversal confirmed) ---
-    has_death_cross = ma_ratio is not None and ma_ratio < 0.99
+    # --- S2: Death cross + volume decline (62% at T+10) ---
+    has_death_cross = ma_ratio is not None and ma_ratio < 0.98
     has_vol_decline = vol_ratio is not None and vol_ratio < 0.8
-    has_mom_decel = mom_accel is not None and mom_accel < -0.01
-    if has_death_cross and (has_vol_decline or has_mom_decel):
+    if has_death_cross and has_vol_decline:
         sell_score -= 8
         sell_signals += 1
 
-    # --- S3: RSI divergence (price high but RSI lower → exhaustion) ---
-    rsi_div = _safe_at(factors.get("rsi_divergence", pd.Series(dtype=float)), idx)
-    if rsi_div is not None and rsi_div > 0.5:
-        sell_score -= 7
-        sell_signals += 1
-
-    # --- S4: Volume climax at peak (institutional distribution) ---
-    vc = _safe_at(factors.get("vol_climax", pd.Series(dtype=float)), idx)
-    if vc is not None and vc > 0.5:
-        sell_score -= 7
-        sell_signals += 1
-
-    # --- S5: Reversal-in-trend sell: rally in downtrend ---
-    if rit is not None and rit < -0.5:
-        sell_score -= 6
-        sell_signals += 1
-
-    # --- S6: Volume-price bearish divergence (price up, volume down) ---
-    if vpd is not None and vpd < -1.0:
+    # --- S3: Death cross + momentum deceleration (weaker confirmation) ---
+    has_mom_decel = mom_accel is not None and mom_accel < -0.02
+    if has_death_cross and has_mom_decel and not has_vol_decline:
         sell_score -= 5
         sell_signals += 1
 
-    # --- S7: Momentum deceleration after sustained rally ---
-    if mom_accel is not None and mom_accel < -0.03 and mom_20 is not None and mom_20 > 0.03:
+    # --- S4: Volume-price bearish divergence (moderate) ---
+    if vpd is not None and vpd < -1.5:
         sell_score -= 4
         sell_signals += 1
-
-    # --- S8: Quarter-start sell pressure (A-share calendar) ---
-    if idx < len(factors.get("momentum_20d", pd.Series(dtype=float))):
-        try:
-            date_index = factors["momentum_20d"].index
-            if idx < len(date_index):
-                month = date_index[idx].month
-                day = date_index[idx].day
-                if month in (4, 7, 10) and day <= 3:
-                    sell_score -= 2
-        except (IndexError, AttributeError):
-            pass
 
     # ═══════════════════════════════════════════════════════
     # COMBINE buy score and sell score
     # ═══════════════════════════════════════════════════════
-    # If buy score is positive but sell signals also present → conflict
     if score > 0 and sell_signals >= 2:
-        # Strong structural sell overrides weak buy
         score = score + sell_score
     elif sell_signals >= 1:
-        # Single sell signal just dampens buy
         score = score + sell_score * 0.5
 
-    # Regime filter (V5: lighter — let structural signals speak)
+    # Regime filter
     if market_regime == "bear" and score > 0:
         score -= score * 0.20
-    elif market_regime == "bull" and sell_score < 0:
-        sell_score *= 0.7  # Weaken sell in bull market
 
     # ═══════════════════════════════════════════════════════
-    # DIRECTION DECISION — V5.0 asymmetric thresholds
+    # DIRECTION DECISION — V5.2 asymmetric thresholds
     # ═══════════════════════════════════════════════════════
-    # BUY: score >= 20 + confirmation + 3 factors (was 12 + 2 factors)
-    # SELL: 2+ structural sell signals required (was -8 score threshold)
-
     has_vol_confirm = vol_ratio is not None and vol_ratio >= 1.2
     has_oversold = rsi_14 is not None and rsi_14 < 30
     has_deep_dd = (mdd_60 or 0) > 0.15
@@ -515,23 +485,25 @@ def score_at_index(
         direction = SignalDirection.STRONG_BUY
     elif score >= 20 and has_buy_confirm and bullish_factors >= 3:
         direction = SignalDirection.BUY
-    elif sell_signals >= 3:
+    elif sell_signals >= 2 and rit is not None and rit < -0.5:
+        # SELL only when reversal_in_trend (76%) + another signal confirm
         direction = SignalDirection.STRONG_SELL
-    elif sell_signals >= 2:
+    elif sell_signals >= 1 and rit is not None and rit < -0.5:
+        # Single reversal_in_trend alone = SELL (60% at T+5, 76% at T+10)
         direction = SignalDirection.SELL
     else:
         direction = SignalDirection.HOLD
 
-    # V5.0 Buy quality gate: anti-chase filter
+    # Buy quality gate: anti-chase filter
     if (
         direction == SignalDirection.BUY
         and mom_accel is not None
         and mom_accel > 0.02
         and not has_vol_confirm
     ):
-        direction = SignalDirection.HOLD  # Chasing without volume = unreliable
+        direction = SignalDirection.HOLD
 
-    # V5.0 Sell quality gate: protect strong uptrends
+    # Sell quality gate: protect strong uptrends
     if (
         direction in (SignalDirection.SELL, SignalDirection.STRONG_SELL)
         and mom_20 is not None
@@ -539,7 +511,7 @@ def score_at_index(
         and rsi_14 is not None
         and rsi_14 < 65
     ):
-        direction = SignalDirection.HOLD  # Don't fight a powerful trend
+        direction = SignalDirection.HOLD
 
     return direction, score, sell_signals
 
@@ -694,6 +666,13 @@ def generate_signal(
 
     tier = classify_tier(direction, score, n_sell_signals)
 
+    # V5.2: Data-driven holding period recommendation
+    # Buy: T+3~T+5 optimal (64.2% accuracy), T+10 drops to 55.7%
+    # Sell: T+10 optimal (reversal_in_trend 76%)
+    is_buy = direction in (SignalDirection.BUY, SignalDirection.STRONG_BUY)
+    is_sell = direction in (SignalDirection.SELL, SignalDirection.STRONG_SELL)
+    holding_days = 5 if is_buy else 10 if is_sell else 0
+
     return TradingSignal(
         symbol=symbol,
         direction=direction,
@@ -707,6 +686,7 @@ def generate_signal(
         factors=factors,
         score=score,
         tier=tier,
+        holding_days=holding_days,
     )
 
 

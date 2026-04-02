@@ -111,6 +111,7 @@ export interface SignalData {
   score: number;
   reason: string;
   tier: "action" | "watch" | "reference" | "noise";
+  holding_days: number;
 }
 
 export interface SignalsResponse {
