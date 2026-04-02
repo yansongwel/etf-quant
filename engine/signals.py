@@ -1,11 +1,11 @@
-"""Real-time trading signal generator — V2 with multi-factor confirmation.
+"""Real-time trading signal generator — V5.1 asymmetric buy/sell engine.
 
-Key improvements over V1:
-1. Higher buy threshold (18 vs 10) — reduces false positives
-2. Volume confirmation — buy signals require above-average volume
-3. Momentum acceleration — not just direction but acceleration matters
-4. Factor conflict resolution — contradictory signals downgrade to HOLD
-5. Market regime awareness — suppress buy in bear markets
+V5.1 design:
+1. BUY: IC-weighted mean-reversion scoring (threshold 20, 3+ factor consensus)
+2. SELL: structural-only signals (ATR stop + MA death cross + RSI div, 2+ required)
+3. TIER: action(80%)/watch(58%)/reference — guides trading frequency
+4. Per-ETF confidence gating — blacklist unreliable ETFs, boost reliable ones
+5. Tightened thresholds: MA偏离<-5%, RSI<30, 量比≥1.2
 
 IMPORTANT: This is for research/education only. Not investment advice.
 A-share ETFs follow T+1 rule — signals generated today execute tomorrow.
@@ -569,7 +569,7 @@ def generate_signal(
     close = df["close"]
     current_price = float(close.iloc[-1])
 
-    # ── V4.0: Use precompute + score_at_index (single source of truth) ──
+    # Use precompute + score_at_index (single source of truth)
     precomputed = precompute_factors(df)
 
     # Use aggressive regime penalty if requested
@@ -763,8 +763,8 @@ def generate_signals_batch(
 ) -> list[TradingSignal]:
     """Generate signals for multiple ETFs and sort by score.
 
-    V4.3: Integrates per-ETF signal quality. Low-confidence ETFs
-    have their buy signals downgraded to HOLD to reduce noise.
+    V5.1: Per-ETF signal quality gating. Low-confidence ETFs have
+    buy signals downgraded to HOLD. High-confidence ETFs get tier boost.
     """
     regime = _detect_market_regime()
     logger.info("Market regime: %s", regime)

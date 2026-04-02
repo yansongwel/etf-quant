@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 # ─── Version ──────────────────────────────────────────
-PLATFORM_VERSION = "5.0"
-# V5.0: asymmetric buy/sell — buy uses IC-weighted mean-reversion (threshold 20, 3+ factors),
-# sell uses structural-only signals (ATR stop + MA death cross + RSI div, needs 2+ signals)
-SIGNAL_ENGINE_VERSION = "5.0"
+PLATFORM_VERSION = "5.1"
+# V5.1: ETF blacklist + tightened thresholds — strong_buy T+5 68%, score 30-50 T+5 69%
+SIGNAL_ENGINE_VERSION = "5.1"
 
 # ─── Column name mapping: AkShare Chinese → internal English ────────────
 # Used by collectors to normalize raw DataFrames before storage.

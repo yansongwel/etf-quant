@@ -431,7 +431,7 @@ async def backtest_signal_accuracy(
 ) -> dict:
     """Backtest signal accuracy over historical data.
 
-    Replays the V3.2 signal engine over the last N days and reports
+    Replays the V5.1 signal engine over the last N days and reports
     accuracy by direction and score bucket. Cached per-day since
     results only change when market data updates.
     """

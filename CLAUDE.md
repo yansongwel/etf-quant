@@ -143,7 +143,7 @@ etf-quant/
 │   ├── balance.py     # 股债平衡策略
 │   ├── grid.py        # 网格交易策略
 │   └── multifactor.py # 多因子打分策略
-├── api/               # FastAPI 后端 (v3.4)
+├── api/               # FastAPI 后端 (v5.1)
 │   ├── main.py        # 应用入口 + CORS + 缓存预热
 │   ├── deps.py        # 认证依赖 (X-API-Key)
 │   └── routers/       # 路由模块 (data, factors, backtest, signals, sector, flow, recommend, portfolio)
