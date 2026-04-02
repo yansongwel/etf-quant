@@ -477,13 +477,20 @@ def score_at_index(
     # DIRECTION DECISION — V5.2 asymmetric thresholds
     # ═══════════════════════════════════════════════════════
     has_vol_confirm = vol_ratio is not None and vol_ratio >= 1.2
+    has_strong_vol = vol_ratio is not None and vol_ratio >= 1.5
     has_oversold = rsi_14 is not None and rsi_14 < 30
     has_deep_dd = (mdd_60 or 0) > 0.15
+    has_low_mfi = mfi is not None and mfi < 25
     has_buy_confirm = has_vol_confirm or has_oversold or has_deep_dd
+
+    # V5.2: Score 30+ needs standard confirmation
+    # Score 20-29 needs stronger confirmation (vol>=1.5 or MFI<25 or mom_20<-8%)
+    # Data: vol>=1.5 boosts 20-29 accuracy from 58% to 68%, MFI<25 to 71%
+    has_strong_confirm = has_strong_vol or has_low_mfi or (mom_20 is not None and mom_20 < -0.08)
 
     if score >= 30 and has_buy_confirm and bullish_factors >= 3:
         direction = SignalDirection.STRONG_BUY
-    elif score >= 20 and has_buy_confirm and bullish_factors >= 3:
+    elif score >= 20 and has_strong_confirm and bullish_factors >= 3:
         direction = SignalDirection.BUY
     elif sell_signals >= 2 and rit is not None and rit < -0.5:
         # SELL only when reversal_in_trend (76%) + another signal confirm
