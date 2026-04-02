@@ -361,9 +361,15 @@ class TestBacktestAccuracy:
     def test_backtest_accuracy_ok(self, _mock: object) -> None:
         _mock.return_value = {
             "total_signals": 100,
-            "buy_accuracy": 0.58,
-            "sell_accuracy": 0.52,
+            "eval_horizon": 5,
+            "buy_accuracy_1d": 55.4,
+            "buy_accuracy_nd": 58.2,
+            "overall_accuracy_1d": 55.0,
+            "overall_accuracy_nd": 51.4,
+            "buy_total": 50,
             "by_direction": {},
+            "buy_score_buckets": [],
+            "test_days": 30,
         }
         with patch("config.settings.settings") as mock_settings:
             mock_data = MagicMock()

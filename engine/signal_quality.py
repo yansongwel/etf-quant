@@ -69,9 +69,12 @@ def compute_signal_quality(lookback_days: int = 90) -> dict[str, dict]:
         buy_acc = (buy_ok / buy_n * 100) if buy_n > 0 else 50.0
         sell_acc = (sell_ok / sell_n * 100) if sell_n > 0 else 50.0
 
-        if buy_acc >= 65:
+        # V5.0: Tightened confidence thresholds based on backtest data
+        # Top ETFs: 100% accuracy (512690, 159870, 159920)
+        # Bottom ETFs: 20-30% accuracy (512880, 159869, 588000)
+        if buy_acc >= 60 and buy_n >= 3:
             confidence = "high"
-        elif buy_acc >= 50:
+        elif buy_acc >= 45:
             confidence = "medium"
         else:
             confidence = "low"

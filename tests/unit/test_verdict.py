@@ -38,6 +38,9 @@ def _make_signal(
     score: float = 50.0,
     price: float = 3.0,
 ) -> TradingSignal:
+    from engine.signals import classify_tier
+
+    tier = classify_tier(direction, score)
     return TradingSignal(
         symbol=symbol,
         direction=direction,
@@ -50,6 +53,7 @@ def _make_signal(
         reason="test",
         factors={"momentum": 0.5, "value": 0.3},
         score=score,
+        tier=tier,
     )
 
 

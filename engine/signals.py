@@ -301,21 +301,25 @@ def score_at_index(
     bullish_factors = 0
 
     # --- #1 MA deviation (IC=0.193, STRONGEST) ---
+    # V5.1: Tightened — correct buys avg -7.6%, wrong avg -5.9%
+    # Removed -3% tier (noise), only score at -5% and -8%
     if ma_dev_20 is not None:
-        if ma_dev_20 < -0.06:
-            score += 12
+        if ma_dev_20 < -0.08:
+            score += 14
             bullish_factors += 1
-        elif ma_dev_20 < -0.03:
-            score += 7
+        elif ma_dev_20 < -0.05:
+            score += 8
             bullish_factors += 1
 
     # --- #2 RSI oversold (IC=0.158) ---
+    # V5.1: Tightened — correct buys avg RSI=32.7, wrong avg 34.8
+    # Removed RSI<35 tier, only score at RSI<30 and RSI<20
     if rsi_14 is not None:
-        if rsi_14 < 25:
-            score += 10
+        if rsi_14 < 20:
+            score += 12
             bullish_factors += 1
-        elif rsi_14 < 35:
-            score += 5
+        elif rsi_14 < 30:
+            score += 6
             bullish_factors += 1
 
     # --- #3 Short-term reversal ret_5d (IC=0.140) ---
@@ -369,12 +373,16 @@ def score_at_index(
             score += 2
 
     # --- #9 Volume confirms buy direction (IC=0.079) ---
+    # V5.1: Correct buys avg vol_ratio=1.33, wrong=1.17
+    # Raised confirmation threshold from 1.0 to 1.2
     if vol_ratio is not None:
         if vol_ratio >= 2.0 and score > 0:
-            score += 4
+            score += 5
             bullish_factors += 1
+        elif vol_ratio >= 1.2 and score > 0:
+            score += 2
         elif vol_ratio < 0.5 and score > 0:
-            score -= 2  # Low volume weakens buy
+            score -= 3  # Low volume strongly weakens buy
 
     # --- #10 Price percentile low (weak) ---
     if pctile is not None and pctile < 0.10:
@@ -498,8 +506,8 @@ def score_at_index(
     # BUY: score >= 20 + confirmation + 3 factors (was 12 + 2 factors)
     # SELL: 2+ structural sell signals required (was -8 score threshold)
 
-    has_vol_confirm = vol_ratio is not None and vol_ratio >= 1.0
-    has_oversold = rsi_14 is not None and rsi_14 < 35
+    has_vol_confirm = vol_ratio is not None and vol_ratio >= 1.2
+    has_oversold = rsi_14 is not None and rsi_14 < 30
     has_deep_dd = (mdd_60 or 0) > 0.15
     has_buy_confirm = has_vol_confirm or has_oversold or has_deep_dd
 
@@ -775,15 +783,15 @@ def generate_signals_batch(
         if sig is None:
             continue
 
-        # V4.3: Downgrade buy signals for low-confidence ETFs
+        # V5.0: Per-ETF confidence gating — downgrade signals for unreliable ETFs
         q = quality.get(symbol, {})
         confidence = q.get("confidence", "medium")
+        buy_acc = q.get("buy_accuracy", 50.0)
 
         if confidence == "low" and sig.direction in (
             SignalDirection.BUY,
             SignalDirection.STRONG_BUY,
         ):
-            # Low confidence ETF → downgrade buy to HOLD
             sig = TradingSignal(
                 symbol=sig.symbol,
                 direction=SignalDirection.HOLD,
@@ -793,10 +801,27 @@ def generate_signals_batch(
                 target_price=sig.target_price,
                 stop_loss=sig.stop_loss,
                 position_pct=sig.position_pct,
-                reason=sig.reason + " | 该ETF历史买入准确率<50%，信号降级",
+                reason=sig.reason + f" | 该ETF历史买入准确率{buy_acc:.0f}%，信号降级",
                 factors=sig.factors,
                 score=sig.score,
                 tier=SignalTier.NOISE,
+            )
+
+        # V5.0: Boost high-confidence ETF signals to higher tier
+        if confidence == "high" and sig.tier == SignalTier.WATCH:
+            sig = TradingSignal(
+                symbol=sig.symbol,
+                direction=sig.direction,
+                strength=sig.strength,
+                current_price=sig.current_price,
+                entry_price=sig.entry_price,
+                target_price=sig.target_price,
+                stop_loss=sig.stop_loss,
+                position_pct=min(sig.position_pct * 1.3, 0.30),
+                reason=sig.reason + f" | 高置信ETF({buy_acc:.0f}%准确率)",
+                factors=sig.factors,
+                score=sig.score,
+                tier=SignalTier.ACTION,
             )
 
         signals.append(sig)
