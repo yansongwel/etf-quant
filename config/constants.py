@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 # ─── Version ──────────────────────────────────────────
-PLATFORM_VERSION = "3.6"
-# V4.3: dual-tier — STRONG_BUY(70%+) needs score>=16+confirm, BUY(60%) at score>=8
-SIGNAL_ENGINE_VERSION = "4.3"
+PLATFORM_VERSION = "5.0"
+# V5.0: asymmetric buy/sell — buy uses IC-weighted mean-reversion (threshold 20, 3+ factors),
+# sell uses structural-only signals (ATR stop + MA death cross + RSI div, needs 2+ signals)
+SIGNAL_ENGINE_VERSION = "5.0"
 
 # ─── Column name mapping: AkShare Chinese → internal English ────────────
 # Used by collectors to normalize raw DataFrames before storage.
