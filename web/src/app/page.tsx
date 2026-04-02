@@ -22,12 +22,14 @@ interface Signal {
   target_price: number;
   stop_loss: number;
   reason: string;
+  tier: "action" | "watch" | "reference" | "noise";
 }
 
 interface SignalSummary {
   count: number;
   signals: Signal[];
   summary: Record<string, number>;
+  tiers?: Record<string, number>;
   generated_at?: string;
 }
 
@@ -74,6 +76,10 @@ const DIR_CN: Record<string, string> = {
   strong_sell: "强卖",
 };
 
+const TIER_ICON: Record<string, string> = { action: "🔴", watch: "🟡", reference: "⚪" };
+const TIER_LABEL: Record<string, string> = { action: "立即行动", watch: "关注观察", reference: "仅供参考" };
+const TIER_ACC: Record<string, string> = { action: "≈80%", watch: "≈58%", reference: "≈57%" };
+
 /* ─── Page ─── */
 
 export default function HomePage() {
@@ -86,7 +92,6 @@ export default function HomePage() {
   const [lastUpdate, setLastUpdate] = useState("");
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
   const [realtimeQuotes, setRealtimeQuotes] = useState<{ symbol: string; name: string; price: number; change_pct: number }[]>([]);
-  const [accuracy, setAccuracy] = useState<{ overall_accuracy: number; by_direction: Record<string, { accuracy: number; total: number }> } | null>(null);
   const [sectorData, setSectorData] = useState<Array<{ sector_name: string; phase: string; phase_label: string; momentum_20d: number; best_etf_name: string }>>([]);
   const { data: wsData, connected: wsConnected } = useMarketWS();
 
@@ -108,7 +113,6 @@ export default function HomePage() {
       setAlerts(alertRes?.alerts || []);
       if (portfolioRes && portfolioRes.total_positions > 0) setPortfolio(portfolioRes);
       setLastUpdate(sigRes?.generated_at || nowCST());
-      fetch("/api/signals/accuracy?days=30").then(r => r.json()).then(setAccuracy).catch(() => {});
       fetch("/api/sector/rotation").then(r => r.json()).then(d => {
         if (d?.sectors) setSectorData(d.sectors);
       }).catch(() => {});
@@ -133,11 +137,11 @@ export default function HomePage() {
     }
   }, [wsData]);
 
-  // Load sparkline trends for top 10 signals
+  // Load sparkline trends for action+watch signals
   useEffect(() => {
     if (!signals?.signals) return;
-    const top10 = signals.signals.slice(0, 10);
-    for (const s of top10) {
+    const actionable = signals.signals.filter(s => s.tier === "action" || s.tier === "watch").slice(0, 10);
+    for (const s of actionable) {
       if (trendCache[s.symbol]) continue;
       fetch(`/api/signals/trend/${s.symbol}?days=30`)
         .then((r) => r.json())
@@ -153,8 +157,14 @@ export default function HomePage() {
     }
   }, [signals]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const buyCount = signals?.signals.filter((s) => ["strong_buy", "buy"].includes(s.direction)).length || 0;
-  const sellCount = signals?.signals.filter((s) => ["sell", "strong_sell"].includes(s.direction)).length || 0;
+  const tiers = signals?.tiers;
+  const actionCount = tiers?.action || 0;
+  const watchCount = tiers?.watch || 0;
+
+  // Actionable signals: action + watch, sorted by abs(score)
+  const actionableSignals = (signals?.signals || [])
+    .filter(s => s.tier === "action" || s.tier === "watch")
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
 
   return (
     <div className="fade-in">
@@ -177,67 +187,60 @@ export default function HomePage() {
         <div style={{
           display: "flex", gap: "1rem", overflowX: "auto",
           padding: "0.5rem 0", marginBottom: "0.75rem",
-          fontSize: "0.75rem", whiteSpace: "nowrap", scrollbarWidth: "none",
+          scrollbarWidth: "none",
         }}>
-          {realtimeQuotes.slice(0, 15).map((q) => (
-            <span key={q.symbol} style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-              <span style={{ color: "var(--text-secondary)" }}>{q.name}</span>
-              <span className="mono" style={{ fontWeight: 600 }}>¥{q.price.toFixed(3)}</span>
-              <span style={{
-                fontWeight: 700, fontSize: "0.7rem",
-                color: q.change_pct > 0 ? "var(--green)" : q.change_pct < 0 ? "var(--red)" : "var(--text-tertiary)",
+          {realtimeQuotes.map((q) => (
+            <div key={q.symbol} style={{
+              flex: "0 0 auto", padding: "4px 10px", borderRadius: 6,
+              background: q.change_pct > 0 ? "rgba(34,197,94,0.1)" : q.change_pct < 0 ? "rgba(239,68,68,0.1)" : "var(--bg-secondary)",
+              fontSize: "0.75rem", whiteSpace: "nowrap",
+            }}>
+              <span style={{ fontWeight: 600 }}>{q.name}</span>
+              <span className="mono" style={{
+                marginLeft: 6, fontWeight: 700,
+                color: q.change_pct > 0 ? "var(--green)" : q.change_pct < 0 ? "var(--red)" : "inherit",
               }}>
                 {q.change_pct > 0 ? "+" : ""}{q.change_pct.toFixed(2)}%
               </span>
-            </span>
+            </div>
           ))}
         </div>
       )}
 
       {error && <ErrorBanner message={error} onRetry={refresh} />}
-      {loading && !signals && <LoadingSkeleton rows={3} height={80} />}
+      {loading && !signals && <LoadingSkeleton rows={5} height={60} />}
 
-      {/* ─── Market Verdict ─── */}
+      {/* ─── Verdict Banner ─── */}
       {verdict && (
-        <div
-          className="card"
-          style={{
-            borderLeft: `4px solid ${verdict.color}`,
-            marginBottom: "1rem",
-            background: `${verdict.color}08`,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 4 }}>
-                {verdict.verdict}
+        <Link href="/signals" style={{ textDecoration: "none", color: "inherit" }}>
+          <div className="card" style={{
+            marginBottom: "1rem", borderLeft: `4px solid ${verdict.color || "#60a5fa"}`,
+            cursor: "pointer", transition: "all 0.15s",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: verdict.color }}>{verdict.verdict}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: "0.9rem", fontWeight: 600 }}>{verdict.action}</div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{verdict.signal_summary}</div>
               </div>
-              <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                <span>操作: <strong style={{ color: verdict.color }}>{verdict.action}</strong></span>
-                <span>风险: <strong>{verdict.risk_level}</strong></span>
-                <span>{verdict.signal_summary}</span>
-              </div>
+              <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--accent)" }}>查看详情 →</span>
             </div>
-            {verdict.top_buy && (
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>首选买入</div>
-                <div style={{ fontWeight: 700, color: "var(--green)" }}>{verdict.top_buy.name}</div>
-                <div className="mono" style={{ fontSize: "0.8rem" }}>¥{verdict.top_buy.price}</div>
-              </div>
-            )}
           </div>
-        </div>
+        </Link>
       )}
 
       {/* ─── Alerts ─── */}
       {alerts.length > 0 && (
-        <div className="card" style={{ marginBottom: "1rem", borderColor: "var(--red)", borderWidth: 2, background: "rgba(239,68,68,0.05)" }}>
-          <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--red)", marginBottom: 6 }}>
+        <div className="card" style={{
+          marginBottom: "1rem", borderColor: "var(--red)", borderWidth: 2,
+          background: "rgba(239,68,68,0.06)",
+        }}>
+          <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--red)", marginBottom: 4 }}>
             止盈止损告警 ({alerts.length})
           </div>
           {alerts.map((a, i) => (
-            <div key={i} style={{ fontSize: "0.8rem", padding: "3px 0" }}>
-              <span className="mono" style={{ fontWeight: 600, marginRight: 8 }}>{a.symbol}</span>
+            <div key={i} style={{ fontSize: "0.8rem", padding: "2px 0" }}>
+              <span className="mono" style={{ fontWeight: 700, marginRight: 6 }}>{a.symbol}</span>
               <span style={{ color: a.alert_type === "stop_loss" ? "var(--red)" : "var(--green)" }}>
                 {a.message}
               </span>
@@ -246,78 +249,42 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ─── Portfolio Banner ─── */}
-      {portfolio && (
-        <Link href="/portfolio" style={{ textDecoration: "none", color: "inherit" }}>
-          <div
-            className="card"
-            style={{
-              marginBottom: "1rem",
-              padding: "0.75rem 1rem",
-              borderLeft: `4px solid ${portfolio.total_pnl >= 0 ? "var(--green)" : "var(--red)"}`,
-              background: portfolio.total_pnl >= 0 ? "rgba(34,197,94,0.05)" : "rgba(239,68,68,0.05)",
-              cursor: "pointer",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", fontSize: "0.85rem" }}>
-              <span style={{ fontWeight: 700 }}>我的持仓</span>
-              <span>
-                成本 <strong>¥{(portfolio.total_cost / 10000).toFixed(2)}万</strong>
-              </span>
-              <span>
-                市值 <strong>¥{(portfolio.total_value / 10000).toFixed(2)}万</strong>
-              </span>
-              <span style={{ color: portfolio.total_pnl >= 0 ? "var(--green)" : "var(--red)", fontWeight: 700 }}>
-                {portfolio.total_pnl >= 0 ? "+" : ""}¥{portfolio.total_pnl.toLocaleString("zh-CN", { maximumFractionDigits: 0 })}
-                ({portfolio.total_pnl_pct >= 0 ? "+" : ""}{portfolio.total_pnl_pct.toFixed(2)}%)
-              </span>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-tertiary)" }}>{portfolio.total_positions} 只</span>
-              <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--accent)" }}>查看详情 →</span>
-            </div>
-          </div>
-        </Link>
-      )}
-
-      {/* ─── Quick Action Cards ─── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" }}>
+      {/* ─── Tier Quick Cards ─── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" }}>
         <Link href="/signals" style={{ textDecoration: "none", color: "inherit" }}>
-          <div className="card" style={{ textAlign: "center", cursor: "pointer", transition: "all 0.15s", borderColor: "#22c55e", borderWidth: buyCount > 0 ? 2 : 1 }}>
-            <div style={{ fontSize: "2rem", fontWeight: 800, color: "#22c55e" }}>{buyCount}</div>
-            <div style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: 2 }}>可买入信号</div>
-            <div style={{ fontSize: "0.7rem", color: "var(--text-tertiary)" }}>查看买入方案 →</div>
+          <div className="card" style={{ textAlign: "center", cursor: "pointer", transition: "all 0.15s", borderColor: actionCount > 0 ? "#ef4444" : "var(--border)", borderWidth: actionCount > 0 ? 2 : 1 }}>
+            <div style={{ fontSize: "0.85rem", marginBottom: 2 }}>🔴</div>
+            <div style={{ fontSize: "2rem", fontWeight: 800, color: actionCount > 0 ? "#ef4444" : "var(--text-tertiary)" }}>{actionCount}</div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>立即行动</div>
+            <div style={{ fontSize: "0.65rem", color: "var(--text-tertiary)" }}>准确率≈80%</div>
           </div>
         </Link>
         <Link href="/signals" style={{ textDecoration: "none", color: "inherit" }}>
-          <div className="card" style={{ textAlign: "center", cursor: "pointer", transition: "all 0.15s", borderColor: "#ef4444", borderWidth: sellCount > 0 ? 2 : 1 }}>
-            <div style={{ fontSize: "2rem", fontWeight: 800, color: "#ef4444" }}>{sellCount}</div>
-            <div style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: 2 }}>建议卖出</div>
-            <div style={{ fontSize: "0.7rem", color: "var(--text-tertiary)" }}>查看详情 →</div>
+          <div className="card" style={{ textAlign: "center", cursor: "pointer", transition: "all 0.15s", borderColor: watchCount > 0 ? "#eab308" : "var(--border)", borderWidth: watchCount > 0 ? 2 : 1 }}>
+            <div style={{ fontSize: "0.85rem", marginBottom: 2 }}>🟡</div>
+            <div style={{ fontSize: "2rem", fontWeight: 800, color: watchCount > 0 ? "#eab308" : "var(--text-tertiary)" }}>{watchCount}</div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>关注观察</div>
+            <div style={{ fontSize: "0.65rem", color: "var(--text-tertiary)" }}>准确率≈58%</div>
           </div>
         </Link>
         <Link href="/portfolio" style={{ textDecoration: "none", color: "inherit" }}>
           <div className="card" style={{ textAlign: "center", cursor: "pointer", transition: "all 0.15s" }}>
             <div style={{ fontSize: "2rem", fontWeight: 800 }}>{portfolio?.total_positions || 0}</div>
-            <div style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: 2 }}>我的持仓</div>
-            <div style={{ fontSize: "0.7rem", color: "var(--text-tertiary)" }}>管理持仓 →</div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>我的持仓</div>
+            <div style={{ fontSize: "0.65rem", color: "var(--text-tertiary)" }}>
+              {portfolio ? `${portfolio.total_pnl >= 0 ? "+" : ""}${portfolio.total_pnl_pct.toFixed(1)}%` : "管理持仓 →"}
+            </div>
           </div>
         </Link>
-        {accuracy && (
-          <Link href="/signals" style={{ textDecoration: "none", color: "inherit" }}>
-            <div className="card" style={{ textAlign: "center", cursor: "pointer", transition: "all 0.15s", borderColor: accuracy.overall_accuracy >= 55 ? "#60a5fa" : "var(--border)" }}>
-              <div style={{
-                fontSize: "2rem",
-                fontWeight: 800,
-                color: accuracy.overall_accuracy >= 55 ? "#60a5fa" : accuracy.overall_accuracy >= 45 ? "var(--text-secondary)" : "var(--text-tertiary)",
-              }}>
-                {accuracy.overall_accuracy.toFixed(0)}%
-              </div>
-              <div style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: 2 }}>信号准确率</div>
-              <div style={{ fontSize: "0.7rem", color: "var(--text-tertiary)" }}>
-                卖出 {accuracy.by_direction?.sell?.accuracy?.toFixed(0) || "—"}% · 买入 {accuracy.by_direction?.buy?.accuracy?.toFixed(0) || "—"}%
-              </div>
+        <Link href="/sector" style={{ textDecoration: "none", color: "inherit" }}>
+          <div className="card" style={{ textAlign: "center", cursor: "pointer", transition: "all 0.15s" }}>
+            <div style={{ fontSize: "2rem", fontWeight: 800 }}>{sectorData.length}</div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>板块轮动</div>
+            <div style={{ fontSize: "0.65rem", color: "var(--text-tertiary)" }}>
+              {sectorData.filter(s => s.phase === "recovery").length} 个复苏期
             </div>
-          </Link>
-        )}
+          </div>
+        </Link>
       </div>
 
       {/* ─── Sector Rotation Mini ─── */}
@@ -367,33 +334,39 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ─── Signal Table (Top 10 only) ─── */}
-      {signals && signals.signals.length > 0 && (
+      {/* ─── Actionable Signal Table ─── */}
+      {actionableSignals.length > 0 && (
         <div className="card" style={{ padding: "1rem", marginBottom: "1rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-            <div className="section-title">信号概览 (Top 10)</div>
+            <div className="section-title">值得关注的信号</div>
             <Link href="/signals" style={{ fontSize: "0.8rem", color: "var(--accent)", textDecoration: "none" }}>
-              查看全部 {signals.count} 只 →
+              查看全部 →
             </Link>
           </div>
           <table className="data-table" style={{ fontSize: "0.8rem" }}>
             <thead>
               <tr>
                 <th>名称</th>
+                <th>级别</th>
                 <th>信号</th>
                 <th style={{ textAlign: "right" }}>评分</th>
                 <th style={{ textAlign: "center" }}>30日趋势</th>
                 <th style={{ textAlign: "right" }}>现价</th>
-                <th style={{ textAlign: "right" }}>目标价</th>
-                <th style={{ textAlign: "right" }}>止损价</th>
+                <th style={{ textAlign: "right" }}>目标/止损</th>
               </tr>
             </thead>
             <tbody>
-              {signals.signals.slice(0, 10).map((s) => (
+              {actionableSignals.slice(0, 10).map((s) => (
                 <tr key={s.symbol}>
                   <td>
                     <div style={{ fontWeight: 600 }}>{s.name || s.symbol}</div>
                     <div className="mono" style={{ fontSize: "0.7rem", color: "var(--text-tertiary)" }}>{s.symbol}</div>
+                  </td>
+                  <td>
+                    <span style={{ fontSize: "0.75rem" }}>{TIER_ICON[s.tier] || ""}</span>
+                    <span style={{ fontSize: "0.65rem", color: "var(--text-tertiary)", marginLeft: 4 }}>
+                      {TIER_ACC[s.tier] || ""}
+                    </span>
                   </td>
                   <td>
                     <span className={`badge ${["strong_buy", "buy"].includes(s.direction) ? "badge-buy" : s.direction === "hold" ? "badge-hold" : "badge-sell"}`}>
@@ -411,18 +384,26 @@ export default function HomePage() {
                     )}
                   </td>
                   <td className="tabular" style={{ textAlign: "right" }}>{num(s.current_price, 3)}</td>
-                  <td className="tabular" style={{ textAlign: "right", color: "var(--green)" }}>{num(s.target_price, 3)}</td>
-                  <td className="tabular" style={{ textAlign: "right", color: "var(--red)" }}>{num(s.stop_loss, 3)}</td>
+                  <td className="tabular" style={{ textAlign: "right" }}>
+                    <span style={{ color: "var(--green)" }}>{num(s.target_price, 3)}</span>
+                    <span style={{ color: "var(--text-tertiary)", margin: "0 2px" }}>/</span>
+                    <span style={{ color: "var(--red)" }}>{num(s.stop_loss, 3)}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {actionableSignals.length === 0 && (
+            <div style={{ textAlign: "center", padding: "1rem", color: "var(--text-tertiary)", fontSize: "0.85rem" }}>
+              当前没有高置信信号 — 平均每12天出现1个action级信号
+            </div>
+          )}
         </div>
       )}
 
       {/* ─── Footer ─── */}
       <div style={{ fontSize: "0.7rem", color: "var(--text-tertiary)", textAlign: "center", padding: "0.5rem 0" }}>
-        仅供研究参考，不构成投资建议。
+        仅供研究参考，不构成投资建议。Score≥50 信号 T+5 准确率≈80%。
       </div>
     </div>
   );
