@@ -57,6 +57,15 @@ def backtest_signals(
 
     regime = _detect_market_regime()
 
+    # V5.2: Apply same per-ETF quality gating as generate_signals_batch
+    # Without this, backtest reports lower accuracy than production
+    try:
+        from engine.signal_quality import compute_signal_quality
+
+        quality = compute_signal_quality()
+    except Exception:
+        quality = {}
+
     for symbol in symbols:
         df = load_hist(symbol)
         if df.empty or len(df) < lookback_days + test_days + eval_horizon:
@@ -64,12 +73,20 @@ def backtest_signals(
 
         factors = precompute_factors(df)
 
+        # Check if this ETF's buys should be downgraded
+        q = quality.get(symbol, {})
+        is_low_confidence = q.get("confidence") == "low"
+
         total_rows = len(df)
         start_idx = max(total_rows - test_days - eval_horizon, lookback_days)
 
         for i in range(start_idx, total_rows - eval_horizon):
             current_price = float(df["close"].iloc[i])
             direction, score, _ = score_at_index(factors, i, current_price, market_regime=regime)
+
+            # Downgrade low-confidence ETF buys to HOLD (matches production behavior)
+            if is_low_confidence and direction in (SignalDirection.BUY, SignalDirection.STRONG_BUY):
+                direction = SignalDirection.HOLD
 
             # T+1 return (for comparison)
             next_close = float(df["close"].iloc[i + 1])
