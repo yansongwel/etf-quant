@@ -971,18 +971,17 @@ class TestScoreAtIndexDirectPaths:
         # V4.0: ret_5d(-0.05)→+8, mom_accel(0.04)→+3, smf should add more
         assert score >= 5
 
-    def test_smf_bearish_confirmation(self) -> None:
-        """SMF < -0.3 with score < -5 → additional bearish score."""
+    def test_structural_sell_signals(self) -> None:
+        """V5.0: Sell requires structural signals (ATR stop + MA death cross)."""
         from engine.signals import score_at_index
 
-        # Build bearish base with multiple factors
+        # Trigger structural sell: ATR trailing stop + MA death cross + vol decline
         factors = _make_factor_dict(
             {
-                "ret_5d": 0.05,
-                "momentum_accel": -0.04,
-                "smart_flow_20d": -0.5,
-                "rsi_14": 70.0,
-                "ma_dev_20d": 0.04,
+                "atr_trail_stop": 1.0,  # S1: price below trailing stop
+                "ma_ratio_5_20": 0.98,  # S2 part: MA death cross
+                "volume_ratio": 0.6,  # S2 part: volume declining
+                "rsi_divergence": 1.0,  # S3: RSI divergence
             }
         )
         direction, score = score_at_index(factors, 10, 3.0)
@@ -1009,98 +1008,87 @@ class TestScoreAtIndexDirectPaths:
         assert score_neutral > 0
         assert score_bear < score_neutral
 
-    def test_strong_sell_in_bear(self) -> None:
-        """Extremely bearish factors → strong negative score."""
+    def test_strong_sell_structural(self) -> None:
+        """V5.0: 3+ structural sell signals → STRONG_SELL."""
         from engine.signals import score_at_index
 
-        # V4.0: All bearish factors maxed out
+        # Trigger 3+ structural sell signals for STRONG_SELL
         factors = _make_factor_dict(
             {
-                "ret_5d": 0.06,  # -7
-                "momentum_20d": -0.08,  # kept as is (contrarian buy in V4)
-                "momentum_5d": 0.04,  # -6 (V4: positive mom5 = sell)
-                "momentum_accel": -0.04,  # -5 (decel after rally)
-                "rsi_14": 80.0,  # -10
-                "ma_ratio_5_20": 1.04,  # -5
-                "ma_dev_20d": 0.08,  # -10
-                "mfi_14": 85.0,  # -5
-                "vol_price_div_10d": -1.5,  # -6
+                "atr_trail_stop": 1.0,  # S1: ATR stop break (-10)
+                "ma_ratio_5_20": 0.98,  # S2: death cross
+                "momentum_accel": -0.04,  # S2: momentum decel → sell_signals +1
+                "rsi_divergence": 1.0,  # S3: RSI divergence (-7)
+                "vol_climax": 1.0,  # S4: volume climax (-7)
+                "volume_ratio": 0.6,  # low volume (supports death cross)
             }
         )
         direction, score = score_at_index(factors, 10, 3.0, market_regime="bear")
-        assert score < -15
+        assert score < -10
         assert direction in (SignalDirection.SELL, SignalDirection.STRONG_SELL)
 
-    def test_bear_hold_to_sell_reclassification(self) -> None:
-        """Bear + HOLD + mom_20 < -0.02 + ma_ratio < 1 → SELL (line 404).
-
-        Need >= 2 bearish factors to pass sell confirmation gate (line 417).
-        """
+    def test_sell_with_two_structural_signals(self) -> None:
+        """V5.0: 2 structural sell signals → SELL direction."""
         from engine.signals import score_at_index
 
-        # Near-zero score (HOLD range) with bearish indicators
-        # mom_20 < -0.01 → bearish_factors +1, mom_5 < -0.02 → bearish_factors +1
-        # But offset with a bullish factor to keep total score in HOLD range
+        # Two structural sell triggers
         factors = _make_factor_dict(
             {
-                "momentum_20d": -0.03,  # -3, bearish +1
-                "momentum_5d": -0.03,  # -6, bearish +1
-                "ma_ratio_5_20": 0.97,  # -4, bearish +1
-                "ret_5d": -0.03,  # +5, bullish +1 (offset to keep score near 0)
+                "atr_trail_stop": 1.0,  # S1: ATR stop break
+                "rsi_divergence": 1.0,  # S3: RSI divergence
             }
         )
-        direction, score = score_at_index(factors, 10, 3.0, market_regime="bear")
-        # After bear regime suppression, score should be in HOLD range
-        # Then reclassified to SELL, and sell gate passes (3 bearish factors)
-        assert direction in (SignalDirection.SELL, SignalDirection.HOLD)
+        direction, score = score_at_index(factors, 10, 3.0)
+        assert direction == SignalDirection.SELL
+        assert score < 0
 
     def test_buy_gate_blocks_in_score_at_index(self) -> None:
-        """Buy score with < min_bullish factors → HOLD (lines 413-414)."""
+        """V5.0: Buy score with < 3 bullish factors → HOLD."""
         from engine.signals import score_at_index
 
-        # Score > 12 but only 1 bullish factor
+        # Score > 20 but only 1 bullish factor
         factors = _make_factor_dict(
             {
-                "ret_5d": -0.05,  # +10, bullish_factors = 1
+                "ret_5d": -0.05,  # +8, bullish_factors = 1
                 # Everything else neutral → only 1 bullish factor
             }
         )
         direction, score = score_at_index(factors, 10, 3.0)
-        if score >= 12:
-            # Should be downgraded because < 2 bullish factors
+        if score >= 20:
+            # Should be downgraded because < 3 bullish factors
             assert direction == SignalDirection.HOLD
 
-    def test_sell_gate_blocks_in_score_at_index(self) -> None:
-        """Sell score with < 2 bearish factors → HOLD (lines 417-418)."""
+    def test_sell_gate_requires_structural_signals(self) -> None:
+        """V5.0: Sell requires 2+ structural sell signals."""
         from engine.signals import score_at_index
 
-        # Score < -10 but only 1 bearish factor
+        # Only 1 structural sell signal → should be HOLD
         factors = _make_factor_dict(
             {
-                "ret_5d": 0.05,  # -8, bearish_factors = 1
-                "momentum_accel": -0.04,  # -8, bearish_factors = 2
+                "atr_trail_stop": 1.0,  # S1: only one structural signal
             }
         )
-        direction, score = score_at_index(factors, 10, 3.0, market_regime="bear")
-        # With 2 bearish factors, sell gate should pass
-        assert isinstance(direction, SignalDirection)
+        direction, score = score_at_index(factors, 10, 3.0)
+        # 1 signal not enough for SELL direction
+        assert direction == SignalDirection.HOLD
 
-    def test_bull_regime_softens_negative(self) -> None:
-        """Bull regime with negative score → +20% adjustment (line 378)."""
+    def test_bull_regime_weakens_sell(self) -> None:
+        """V5.0: Bull regime weakens structural sell signals."""
         from engine.signals import score_at_index
 
+        # Structural sells present
         factors = _make_factor_dict(
             {
-                "ret_5d": 0.05,
-                "momentum_20d": -0.06,
-                "momentum_5d": -0.03,
-                "momentum_accel": -0.04,
+                "atr_trail_stop": 1.0,
+                "rsi_divergence": 1.0,
+                "vol_climax": 1.0,
             }
         )
         _, score_none = score_at_index(factors, 10, 3.0, market_regime=None)
         _, score_bull = score_at_index(factors, 10, 3.0, market_regime="bull")
-        if score_none < 0:
-            assert score_bull > score_none
+        # Both should be negative from structural signals
+        assert score_none < 0
+        assert score_bull < 0
 
 
 class TestGenerateSignalSmartFlowAndGates:

@@ -222,12 +222,19 @@ def score_at_index(
 ) -> tuple[SignalDirection, float]:
     """Score a single time point using precomputed factor series.
 
-    V4.0 — Recalibrated with fresh IC analysis (2026-04-01):
-    Key changes from V3.5:
-    1. Weights proportional to measured IC (ma_dev=0.19 gets 3x weight of hvol=0.015)
-    2. Lower thresholds: buy >= 8, sell <= -8 (was 12/-15) — reduce 96% hold problem
-    3. Trend-following sell: MA5 < MA20 + momentum deceleration → sell (profit-taking)
-    4. Relaxed gates: buy needs 2 factors (was 3 in bear), sell needs 1 (was 2)
+    V5.0 — Asymmetric buy/sell redesign (2026-04-02):
+    Problem diagnosed: V4.3 sell accuracy 48.7% (worse than random).
+    Root cause: "overbought=sell" is wrong for A-share ETFs — momentum persists.
+
+    V5.0 changes:
+    1. BUY side: keep IC-weighted mean-reversion scoring (works at 61.9% for high-score)
+    2. SELL side: remove individual-factor sell scores, use ONLY structural signals:
+       - ATR trailing stop break (trend breakdown)
+       - MA death cross + volume decline (trend reversal confirmed)
+       - RSI divergence + volume climax (distribution top)
+    3. BUY threshold: 20 (was 12) — cut 52% noise signals
+    4. BUY gate: 3+ bullish factors (was 2) — require consensus
+    5. SELL gate: 2+ structural signals required (was 1 bearish factor)
     """
     mom_20 = _safe_at(factors["momentum_20d"], idx)
     mom_5 = _safe_at(factors["momentum_5d"], idx)
@@ -249,28 +256,13 @@ def score_at_index(
     vpd = _safe_at(factors.get("vol_price_div_10d", pd.Series(dtype=float)), idx)
     smf = _safe_at(factors.get("smart_flow_20d", pd.Series(dtype=float)), idx)
 
-    # ── V4.0 Scoring — IC-proportional weights ──
-    # Fresh IC analysis (2026-04-01, 16 ETFs, 60-day window):
-    #   ma_dev_20d  IC=-0.193 *** (STRONGEST — far below MA = oversold bounce)
-    #   rsi_14      IC=-0.158 *** (oversold RSI predicts 5d rebound)
-    #   ret_5d      IC=-0.140 *** (short-term reversal, contrarian)
-    #   mom_5d      IC=-0.140 *** (5-day losers bounce)
-    #   mom_20d     IC=-0.144 *** (20-day losers bounce)
-    #   ma_ratio    IC=-0.129 *** (below MA5/20 = oversold)
-    #   vol_price   IC=+0.130 *** (volume-price divergence = reversal)
-    #   mfi_14      IC=-0.119 *** (money flow oversold)
-    #   mdd_60d     IC=+0.100 *** (deep drawdown = mean reversion)
-    #   vol_ratio   IC=+0.079 **  (high volume confirms direction)
-    #   smart_flow  IC=-0.050 *   (net outflow = contrarian buy)
-    #   mom_accel   IC=+0.016 *   (acceleration, weak standalone)
-    #   obv_trend   IC=+0.019 *   (OBV trend, weak)
-    #   hvol_20d    IC=+0.016 *   (high vol = bounce, very weak)
+    # ═══════════════════════════════════════════════════════
+    # BUY SCORING — IC-weighted mean-reversion (proven at 62%)
+    # ═══════════════════════════════════════════════════════
     score = 0.0
     bullish_factors = 0
-    bearish_factors = 0
 
     # --- #1 MA deviation (IC=0.193, STRONGEST) ---
-    # Far below 20d MA → strong oversold bounce signal
     if ma_dev_20 is not None:
         if ma_dev_20 < -0.06:
             score += 12
@@ -278,14 +270,8 @@ def score_at_index(
         elif ma_dev_20 < -0.03:
             score += 7
             bullish_factors += 1
-        elif ma_dev_20 > 0.06:
-            score -= 10  # Far above MA → overbought, sell
-            bearish_factors += 1
-        elif ma_dev_20 > 0.03:
-            score -= 5
-            bearish_factors += 1
 
-    # --- #2 RSI (IC=0.158) ---
+    # --- #2 RSI oversold (IC=0.158) ---
     if rsi_14 is not None:
         if rsi_14 < 25:
             score += 10
@@ -293,12 +279,6 @@ def score_at_index(
         elif rsi_14 < 35:
             score += 5
             bullish_factors += 1
-        elif rsi_14 > 75:
-            score -= 10  # Strong overbought → sell signal
-            bearish_factors += 1
-        elif rsi_14 > 65:
-            score -= 5
-            bearish_factors += 1
 
     # --- #3 Short-term reversal ret_5d (IC=0.140) ---
     if ret_5d is not None:
@@ -308,69 +288,39 @@ def score_at_index(
         elif ret_5d < -0.02:
             score += 4
             bullish_factors += 1
-        elif ret_5d > 0.04:
-            score -= 7  # Sharp rally → profit-taking sell
-            bearish_factors += 1
-        elif ret_5d > 0.02:
-            score -= 3
-            bearish_factors += 1
 
     # --- #4 Momentum 5d + 20d (IC=0.140/0.144) ---
-    if mom_5 is not None:
-        if mom_5 < -0.03:
-            score += 6
-            bullish_factors += 1
-        elif mom_5 > 0.03:
-            score -= 6  # V4: symmetric sell for profit-taking
-            bearish_factors += 1
+    if mom_5 is not None and mom_5 < -0.03:
+        score += 6
+        bullish_factors += 1
 
-    if mom_20 is not None:
-        if mom_20 < -0.05:
-            score += 5
-            bullish_factors += 1
-        elif mom_20 > 0.05:
-            score -= 5
-            bearish_factors += 1
+    if mom_20 is not None and mom_20 < -0.05:
+        score += 5
+        bullish_factors += 1
 
-    # --- #5 MA ratio / trend (IC=0.129) ---
-    # V4: This is now a key SELL trigger — MA5 below MA20 = downtrend
+    # --- #5 MA ratio oversold (IC=0.129) ---
     if ma_ratio is not None:
         if ma_ratio < 0.97:
-            score += 5  # Deep below → oversold buy
+            score += 5
             bullish_factors += 1
         elif ma_ratio < 0.99:
             score += 2
-        elif ma_ratio > 1.03:
-            score -= 5  # Far above → trend exhaustion sell
-            bearish_factors += 1
-        elif ma_ratio > 1.01:
-            score -= 2
 
-    # --- #6 Volume-price divergence (IC=0.130) ---
+    # --- #6 Volume-price divergence bullish (IC=0.130) ---
     if vpd is not None:
         if vpd > 1.0:
-            score += 6  # Strong divergence → reversal
+            score += 6
             bullish_factors += 1
         elif vpd > 0.5:
             score += 3
-        elif vpd < -1.0:
-            score -= 6
-            bearish_factors += 1
-        elif vpd < -0.5:
-            score -= 3
 
-    # --- #7 MFI (IC=0.119) ---
+    # --- #7 MFI oversold (IC=0.119) ---
     if mfi is not None:
         if mfi < 20:
             score += 5
             bullish_factors += 1
         elif mfi < 30:
             score += 2
-        elif mfi > 80:
-            score -= 5  # V4: symmetric sell
-            bearish_factors += 1
-        elif mfi > 70:
-            score -= 2
 
     # --- #8 Max drawdown (IC=0.100) ---
     if mdd_60 is not None:
@@ -380,185 +330,170 @@ def score_at_index(
         elif mdd_60 > 0.12:
             score += 2
 
-    # --- #9 Volume ratio (IC=0.079) ---
+    # --- #9 Volume confirms buy direction (IC=0.079) ---
     if vol_ratio is not None:
-        if vol_ratio >= 2.0:
-            if score > 0:
-                score += 4
-                bullish_factors += 1
-            elif score < 0:
-                score -= 4
-                bearish_factors += 1
+        if vol_ratio >= 2.0 and score > 0:
+            score += 4
+            bullish_factors += 1
         elif vol_ratio < 0.5 and score > 0:
             score -= 2  # Low volume weakens buy
 
-    # --- #10 Price percentile (weak but useful for extremes) ---
-    if pctile is not None:
-        if pctile < 0.10:
-            score += 3
-            bullish_factors += 1
-        elif pctile > 0.90:
-            score -= 3
-            bearish_factors += 1
+    # --- #10 Price percentile low (weak) ---
+    if pctile is not None and pctile < 0.10:
+        score += 3
+        bullish_factors += 1
 
-    # --- #11 Momentum acceleration (IC=0.016, weak) ---
-    # V4: Used primarily as sell trigger — deceleration after rally
-    if mom_accel is not None:
-        if mom_accel > 0.03:
-            score += 3
-        elif mom_accel < -0.03 and mom_20 is not None and mom_20 > 0:
-            # Was going up but now decelerating → trend exhaustion → SELL
-            score -= 5
-            bearish_factors += 1
+    # --- #11 Smart money flow contrarian (IC=0.050) ---
+    if smf is not None and smf < -0.3:
+        score += 3
+        bullish_factors += 1
 
-    # --- #12 Smart money flow (IC=0.050) ---
-    if smf is not None:
-        if smf < -0.3:
-            score += 3  # Net outflow = contrarian buy (IC is negative)
-            bullish_factors += 1
-        elif smf > 0.3:
-            score -= 2
+    # --- #12 Reversal-in-trend buy: dip in uptrend ---
+    rit = _safe_at(factors.get("reversal_in_trend", pd.Series(dtype=float)), idx)
+    if rit is not None and rit > 0.5:
+        score += 6
+        bullish_factors += 1
 
-    # --- #13 OBV trend + volatility (weak, confirmation only) ---
-    if obv_t is not None and abs(score) > 3:
-        if obv_t > 0.02 and score > 0:
-            score += 2
-        elif obv_t < -0.02 and score < 0:
-            score -= 2
-            bearish_factors += 1
+    # --- #13 OBV + hvol (weak, confirmation only) ---
+    if obv_t is not None and obv_t > 0.02 and score > 5:
+        score += 2
 
     if hvol is not None and hvol > 0.4:
-        score += 2  # High vol = bounce potential (very weak)
+        score += 2
 
-    # ── V4.0: Trend-following sell signal ──
-    # Detect profit-taking opportunity: was rising, now turning
-    if (
-        ma_ratio is not None
-        and mom_accel is not None
-        and mom_20 is not None
-        and rsi_14 is not None
-        and ma_ratio < 1.0  # MA5 below MA20 (death cross)
-        and mom_accel < -0.01  # Momentum decelerating
-        and mom_20 > -0.02  # Was recently positive (i.e., was profitable)
-        and rsi_14 > 45  # Not deeply oversold
-    ):
-        score -= 6
-        bearish_factors += 1
+    # --- #14 Momentum acceleration (weak, buy boost only) ---
+    if mom_accel is not None and mom_accel > 0.03:
+        score += 3
 
-    # ── V4.1: Research-backed A-share factors ──
-
-    # #14 Reversal-in-trend combo (IC expected 0.030-0.035)
-    rit = _safe_at(factors.get("reversal_in_trend", pd.Series(dtype=float)), idx)
-    if rit is not None:
-        if rit > 0.5:  # Buy dip in uptrend
-            score += 6
-            bullish_factors += 1
-        elif rit < -0.5:  # Sell rally in downtrend
-            score -= 6
-            bearish_factors += 1
-
-    # #15 ATR trailing stop (sell when below 10-day peak - 2*ATR)
-    atr_stop = _safe_at(factors.get("atr_trail_stop", pd.Series(dtype=float)), idx)
-    if atr_stop is not None and atr_stop > 0.5:
-        score -= 8  # Strong sell — price broke below trailing stop
-        bearish_factors += 1
-
-    # #16 Volume climax (extreme volume at peak → distribution top)
-    vc = _safe_at(factors.get("vol_climax", pd.Series(dtype=float)), idx)
-    if vc is not None and vc > 0.5:
-        score -= 5  # Sell signal — likely institutional distribution
-        bearish_factors += 1
-
-    # #17 RSI divergence (price new high but RSI lower → bearish)
-    rsi_div = _safe_at(factors.get("rsi_divergence", pd.Series(dtype=float)), idx)
-    if rsi_div is not None and rsi_div > 0.5:
-        score -= 5  # Trend exhaustion warning
-        bearish_factors += 1
-
-    # #18 Calendar effect (A-share seasonality, weak but consistent)
+    # --- #15 Calendar effect ---
     if idx < len(factors.get("momentum_20d", pd.Series(dtype=float))):
         try:
             date_index = factors["momentum_20d"].index
             if idx < len(date_index):
                 month = date_index[idx].month
                 day = date_index[idx].day
-                if month == 2:
-                    score += 2  # CNY rally effect
-                elif month == 12 and day >= 15:
-                    score += 2  # Year-end rally
-                elif month == 1:
-                    score -= 1  # January effect
-                elif month in (4, 7, 10) and day <= 3:
-                    score -= 2  # Quarter-start sell pressure
+                if month == 2 or (month == 12 and day >= 15):
+                    score += 2
         except (IndexError, AttributeError):
             pass
 
-    # Factor conflict resolution (lighter penalty in V4)
-    if bullish_factors >= 2 and bearish_factors >= 2:
-        penalty = min(bullish_factors, bearish_factors) * 2
-        score = max(score - penalty, 0) if score > 0 else min(score + penalty, 0)
+    # ═══════════════════════════════════════════════════════
+    # SELL SCORING — structural trend-breakdown signals ONLY
+    # V5.0: No more "overbought = sell". Only sell when trend BREAKS.
+    # ═══════════════════════════════════════════════════════
+    sell_score = 0.0
+    sell_signals = 0  # count of independent structural sell triggers
 
-    # Regime filter (V4: lighter — let factors speak)
+    # --- S1: ATR trailing stop break (strongest structural signal) ---
+    atr_stop = _safe_at(factors.get("atr_trail_stop", pd.Series(dtype=float)), idx)
+    if atr_stop is not None and atr_stop > 0.5:
+        sell_score -= 10
+        sell_signals += 1
+
+    # --- S2: MA death cross + volume decline (trend reversal confirmed) ---
+    has_death_cross = ma_ratio is not None and ma_ratio < 0.99
+    has_vol_decline = vol_ratio is not None and vol_ratio < 0.8
+    has_mom_decel = mom_accel is not None and mom_accel < -0.01
+    if has_death_cross and (has_vol_decline or has_mom_decel):
+        sell_score -= 8
+        sell_signals += 1
+
+    # --- S3: RSI divergence (price high but RSI lower → exhaustion) ---
+    rsi_div = _safe_at(factors.get("rsi_divergence", pd.Series(dtype=float)), idx)
+    if rsi_div is not None and rsi_div > 0.5:
+        sell_score -= 7
+        sell_signals += 1
+
+    # --- S4: Volume climax at peak (institutional distribution) ---
+    vc = _safe_at(factors.get("vol_climax", pd.Series(dtype=float)), idx)
+    if vc is not None and vc > 0.5:
+        sell_score -= 7
+        sell_signals += 1
+
+    # --- S5: Reversal-in-trend sell: rally in downtrend ---
+    if rit is not None and rit < -0.5:
+        sell_score -= 6
+        sell_signals += 1
+
+    # --- S6: Volume-price bearish divergence (price up, volume down) ---
+    if vpd is not None and vpd < -1.0:
+        sell_score -= 5
+        sell_signals += 1
+
+    # --- S7: Momentum deceleration after sustained rally ---
+    if mom_accel is not None and mom_accel < -0.03 and mom_20 is not None and mom_20 > 0.03:
+        sell_score -= 4
+        sell_signals += 1
+
+    # --- S8: Quarter-start sell pressure (A-share calendar) ---
+    if idx < len(factors.get("momentum_20d", pd.Series(dtype=float))):
+        try:
+            date_index = factors["momentum_20d"].index
+            if idx < len(date_index):
+                month = date_index[idx].month
+                day = date_index[idx].day
+                if month in (4, 7, 10) and day <= 3:
+                    sell_score -= 2
+        except (IndexError, AttributeError):
+            pass
+
+    # ═══════════════════════════════════════════════════════
+    # COMBINE buy score and sell score
+    # ═══════════════════════════════════════════════════════
+    # If buy score is positive but sell signals also present → conflict
+    if score > 0 and sell_signals >= 2:
+        # Strong structural sell overrides weak buy
+        score = score + sell_score
+    elif sell_signals >= 1:
+        # Single sell signal just dampens buy
+        score = score + sell_score * 0.5
+
+    # Regime filter (V5: lighter — let structural signals speak)
     if market_regime == "bear" and score > 0:
-        score -= score * 0.25
-    elif market_regime == "bull" and score < 0:
-        score += abs(score) * 0.15
+        score -= score * 0.20
+    elif market_regime == "bull" and sell_score < 0:
+        sell_score *= 0.7  # Weaken sell in bull market
 
-    # ── V4.3 Adaptive thresholds with confirmation ──
-    # ALL buys require score>=12 AND confirmation (vol>=1.0 OR RSI<35 OR mdd>15%)
-    # STRONG_BUY: score>=16 + confirmation → 70% accuracy
-    # BUY: score 12-15 + confirmation → 67% accuracy
-    # No confirmation → HOLD (data shows ~50% = noise)
-    strong_buy_threshold = 16
-    sell_threshold = -8
-    strong_sell_threshold = -18
+    # ═══════════════════════════════════════════════════════
+    # DIRECTION DECISION — V5.0 asymmetric thresholds
+    # ═══════════════════════════════════════════════════════
+    # BUY: score >= 20 + confirmation + 3 factors (was 12 + 2 factors)
+    # SELL: 2+ structural sell signals required (was -8 score threshold)
 
-    # V4.3: ALL buy signals require score>=12 AND at least one confirmation
-    # Confirmations: volume>=1.0, RSI<35, or max_drawdown>15%
-    # Without confirmation, even high scores are 50/50 noise → HOLD
     has_vol_confirm = vol_ratio is not None and vol_ratio >= 1.0
     has_oversold = rsi_14 is not None and rsi_14 < 35
-    has_deep_dd = (_safe_at(factors.get("mdd_60d", pd.Series(dtype=float)), idx) or 0) > 0.15
-    has_confirmation = has_vol_confirm or has_oversold or has_deep_dd
+    has_deep_dd = (mdd_60 or 0) > 0.15
+    has_buy_confirm = has_vol_confirm or has_oversold or has_deep_dd
 
-    if score >= strong_buy_threshold and has_confirmation:
+    if score >= 30 and has_buy_confirm and bullish_factors >= 3:
         direction = SignalDirection.STRONG_BUY
-    elif score >= 12 and has_confirmation:
+    elif score >= 20 and has_buy_confirm and bullish_factors >= 3:
         direction = SignalDirection.BUY
-    elif score <= strong_sell_threshold:
+    elif sell_signals >= 3:
         direction = SignalDirection.STRONG_SELL
-    elif score <= sell_threshold:
+    elif sell_signals >= 2:
         direction = SignalDirection.SELL
     else:
         direction = SignalDirection.HOLD
 
-    # V4.3 Buy quality gates
-    if direction in (SignalDirection.BUY, SignalDirection.STRONG_BUY):
-        if bullish_factors < 2:
-            direction = SignalDirection.HOLD
-        # Anti-chase filter: if momentum is accelerating UP, it's chasing → riskier
-        # Data: wrong buys have mom_accel +0.015 (chasing), correct buys -0.024 (dip)
-        elif (
-            direction == SignalDirection.BUY  # Only filter non-strong
-            and mom_accel is not None
-            and mom_accel > 0.02
-            and (vol_ratio is None or vol_ratio < 1.0)
-        ):
-            direction = SignalDirection.HOLD  # Chasing without volume = unreliable
+    # V5.0 Buy quality gate: anti-chase filter
+    if (
+        direction == SignalDirection.BUY
+        and mom_accel is not None
+        and mom_accel > 0.02
+        and not has_vol_confirm
+    ):
+        direction = SignalDirection.HOLD  # Chasing without volume = unreliable
 
-    # V4.3 Sell quality gates
-    if direction in (SignalDirection.SELL, SignalDirection.STRONG_SELL):
-        if bearish_factors < 1:
-            direction = SignalDirection.HOLD
-        # Strong-trend protection: don't sell in powerful uptrends
-        # Data: wrong sells have avg mom_20d +14.2% — strong uptrend sold prematurely
-        elif (
-            mom_20 is not None
-            and mom_20 > 0.08
-            and rsi_14 is not None
-            and rsi_14 < 70  # Not overbought — trend is healthy
-        ):
-            direction = SignalDirection.HOLD  # Don't fight a strong trend
+    # V5.0 Sell quality gate: protect strong uptrends
+    if (
+        direction in (SignalDirection.SELL, SignalDirection.STRONG_SELL)
+        and mom_20 is not None
+        and mom_20 > 0.10
+        and rsi_14 is not None
+        and rsi_14 < 65
+    ):
+        direction = SignalDirection.HOLD  # Don't fight a powerful trend
 
     return direction, score
 

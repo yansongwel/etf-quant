@@ -186,49 +186,42 @@ GRID_NOTE = {
 ALL_OPTIMAL = [BEST_BALANCED, BEST_DEFENSIVE, BEST_GROWTH, BEST_RETURN]
 
 
-# ── Signal Engine V3.5: IC-Calibrated Parameters ────────
-# Calibrated by factor IC analysis on 27 factors × 16 ETFs (2026-03-31)
-# Key change: added ret_5d reversal factor (IC=-0.022), reversed hvol/mdd
-SIGNAL_V3_5 = {
-    "version": "3.5",
-    "date": "2026-03-31",
-    "accuracy": 55.0,
-    "changes_from_v3_2": [
-        "Added ret_5d contrarian reversal factor (IC=-0.022, strongest)",
-        "Reversed hvol direction: high vol → buy signal (IC=+0.015)",
-        "Reversed mdd direction: deep drawdown → buy signal (IC=+0.017)",
-        "Reduced momentum_20d weight: ±12 → ±6 (IC=-0.005, WEAK)",
-        "Reduced RSI weight: ±12/6 → ±8/4 (IC=-0.004, WEAK)",
-        "Reduced MA ratio weight: ±8 → ±4 (IC=-0.001, WEAK)",
-        "Reduced MFI weight: ±8 → ±3 (IC=-0.002, WEAK)",
-        "Reduced OBV weight: ±5 → ±2 (IC=-0.003, WEAK)",
-        "Lowered buy threshold: 18 → 12, strong_buy: 35 → 25",
-        "Relaxed buy gate: bear 4→3, non-bear 3→2",
-        "Reduced bear suppression: 0.6 → 0.4",
+# ── Signal Engine V5.0: Asymmetric Buy/Sell Redesign ────────
+# Backtested 2026-04-02: V4.3 sell accuracy was 48.7% (worse than random)
+# Root cause: "overbought = sell" is wrong for A-share ETFs (momentum persists)
+SIGNAL_V5_0 = {
+    "version": "5.0",
+    "date": "2026-04-02",
+    "buy_accuracy_1d": 55.4,
+    "buy_accuracy_5d": 58.2,
+    "sell_avg_return_5d": -0.03,  # Now correctly negative (was +0.19% in V4.3)
+    "changes_from_v4_3": [
+        "Asymmetric design: buy uses IC-weighted mean-reversion, sell uses structural-only",
+        "Removed all individual-factor sell scoring (RSI overbought, MFI>80, etc.)",
+        "Sell now requires 2+ structural signals: ATR stop + MA death cross + RSI div + vol climax",
+        "Buy threshold raised: 12 → 20 (cut 52% accuracy noise signals)",
+        "Buy gate: 3+ bullish factors required (was 2)",
+        "Strong sell: 3+ structural signals (very selective, 26 vs 362 in V4.3)",
+        "Eval window: 5-day return as primary metric (ETF rotation cycle)",
+        "Score 50+ signals: 80% accuracy at T+5, avg return +2.81%",
     ],
-    "bear_market": {
-        "regime_penalty": 0.4,
-        "sell_threshold": -10,
-        "strong_sell_threshold": -25,
-        "buy_confirmation_min_factors": 3,
+    "buy_thresholds": {
+        "buy": 20,
+        "strong_buy": 30,
+        "min_bullish_factors": 3,
+        "confirmation": "vol>=1.0 OR RSI<35 OR mdd>15%",
     },
-    "bull_market": {
-        "regime_penalty": 0.2,
-        "sell_threshold": -15,
-        "strong_sell_threshold": -35,
-        "buy_confirmation_min_factors": 2,
-    },
-    "ic_analysis": {
-        "strong_factors": ["ret_5d (-0.022)", "pct_change (-0.025)"],
-        "useful_factors": ["mdd_60d (+0.017)", "vol_price_div (+0.017)", "hvol_20d (+0.015)"],
-        "weak_factors_removed": [
-            "atr_14",
-            "ma_ratio_5_20",
-            "rsi_14",
-            "momentum_20d",
-            "mfi_14",
-            "obv_trend_20d",
-            "price_pctile_120d",
+    "sell_thresholds": {
+        "sell": "2+ structural signals",
+        "strong_sell": "3+ structural signals",
+        "structural_signals": [
+            "ATR trailing stop break",
+            "MA death cross + volume decline",
+            "RSI divergence",
+            "Volume climax at peak",
+            "Reversal-in-trend sell",
+            "Volume-price bearish divergence",
+            "Momentum deceleration after rally",
         ],
     },
 }

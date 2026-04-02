@@ -38,17 +38,21 @@ class TestBacktestSignals:
     @patch("engine.signal_backtest.load_hist", side_effect=_mock_load)
     def test_basic_backtest(self, _m: object) -> None:
         result = backtest_signals(["UP", "DOWN"], test_days=20)
-        assert "overall_accuracy" in result
+        assert "overall_accuracy_1d" in result
+        assert "overall_accuracy_nd" in result
         assert "by_direction" in result
         assert "buy_total" in result
-        assert "buy_accuracy" in result
+        assert "buy_accuracy_1d" in result
+        assert "buy_accuracy_nd" in result
+        assert "eval_horizon" in result
         assert result["total_signals"] > 0
 
     @patch("engine.signal_backtest.load_hist", side_effect=_mock_load)
     def test_no_data(self, _m: object) -> None:
         result = backtest_signals(["NODATA"], test_days=20)
         assert result["total_signals"] == 0
-        assert result["overall_accuracy"] == 0.0
+        assert result["overall_accuracy_1d"] == 0.0
+        assert result["overall_accuracy_nd"] == 0.0
 
     @patch("engine.signal_backtest.load_hist", side_effect=_mock_load)
     def test_by_direction_keys(self, _m: object) -> None:
@@ -59,18 +63,30 @@ class TestBacktestSignals:
         assert "hold" in dirs
         for d in dirs.values():
             assert "total" in d
-            assert "accuracy" in d
-            assert "avg_return" in d
+            assert "accuracy_1d" in d
+            assert "accuracy_nd" in d
+            assert "avg_return_1d" in d
+            assert "avg_return_nd" in d
 
     @patch("engine.signal_backtest.load_hist", side_effect=_mock_load)
     def test_score_buckets(self, _m: object) -> None:
         result = backtest_signals(["UP"], test_days=30)
         assert "buy_score_buckets" in result
-        # Buckets should have proper structure
         for bucket in result["buy_score_buckets"]:
             assert "range" in bucket
             assert "count" in bucket
-            assert "accuracy" in bucket
+            assert "accuracy_1d" in bucket
+            assert "accuracy_nd" in bucket
+
+    @patch("engine.signal_backtest.load_hist", side_effect=_mock_load)
+    def test_eval_horizon_default(self, _m: object) -> None:
+        result = backtest_signals(["UP"], test_days=15)
+        assert result["eval_horizon"] == 5
+
+    @patch("engine.signal_backtest.load_hist", side_effect=_mock_load)
+    def test_eval_horizon_custom(self, _m: object) -> None:
+        result = backtest_signals(["UP"], test_days=15, eval_horizon=3)
+        assert result["eval_horizon"] == 3
 
     @patch("engine.signal_backtest.score_at_index")
     @patch("engine.signal_backtest.precompute_factors", return_value={})
@@ -82,12 +98,12 @@ class TestBacktestSignals:
         """Ensure score bucket analysis covers all four ranges."""
         from engine.signals import SignalDirection
 
-        # Build a DataFrame with enough rows: lookback(60) + test_days(8) + 1 = 69
-        days = 70
+        # Need lookback(60) + test_days(8) + eval_horizon(5) = 73
+        days = 80
         dates = pd.date_range("2025-01-01", periods=days, freq="D")
         close = np.full(days, 3.0)
-        # Make next-day returns positive so "correct" is True for buys
-        close[-9:] = [3.0, 3.01, 3.02, 3.03, 3.04, 3.05, 3.06, 3.07, 3.08]
+        # Make returns positive for buy correctness
+        close[-15:] = np.linspace(3.0, 3.15, 15)
         mock_load.return_value = pd.DataFrame(
             {
                 "open": close * 0.999,
@@ -99,8 +115,6 @@ class TestBacktestSignals:
             index=dates,
         )
 
-        # Return buy signals with scores spanning all four buckets:
-        # [10,20), [20,30), [30,50), [50,100)
         scores = [15.0, 25.0, 35.0, 55.0, 15.0, 25.0, 35.0, 55.0]
         call_count = {"n": 0}
 
@@ -111,21 +125,19 @@ class TestBacktestSignals:
 
         mock_score.side_effect = _fake_score
 
-        result = backtest_signals(["TEST"], test_days=8)
+        result = backtest_signals(["TEST"], test_days=8, eval_horizon=5)
 
         buckets = result["buy_score_buckets"]
         bucket_ranges = {b["range"] for b in buckets}
-        # All four ranges should appear
         assert "10-20" in bucket_ranges
         assert "20-30" in bucket_ranges
         assert "30-50" in bucket_ranges
         assert "50-100" in bucket_ranges
 
-        # Verify each bucket has correct structure and positive counts
         for b in buckets:
             assert b["count"] > 0
-            assert isinstance(b["accuracy"], float)
-            assert isinstance(b["avg_return"], float)
+            assert isinstance(b["accuracy_1d"], float)
+            assert isinstance(b["accuracy_nd"], float)
 
     @patch("engine.signal_backtest.score_at_index")
     @patch("engine.signal_backtest.precompute_factors", return_value={})
@@ -137,7 +149,7 @@ class TestBacktestSignals:
         """Strong buy signals should also be included in bucket analysis."""
         from engine.signals import SignalDirection
 
-        days = 70
+        days = 80
         dates = pd.date_range("2025-01-01", periods=days, freq="D")
         close = np.linspace(3.0, 3.2, days)
         mock_load.return_value = pd.DataFrame(
@@ -151,7 +163,6 @@ class TestBacktestSignals:
             index=dates,
         )
 
-        # Mix of BUY and STRONG_BUY with score=60 (falls in 50-100 bucket)
         call_count = {"n": 0}
 
         def _fake_score(*_args: object, **_kwargs: object) -> tuple:
@@ -163,10 +174,9 @@ class TestBacktestSignals:
 
         mock_score.side_effect = _fake_score
 
-        result = backtest_signals(["TEST"], test_days=8)
+        result = backtest_signals(["TEST"], test_days=8, eval_horizon=5)
 
         buckets = result["buy_score_buckets"]
         assert len(buckets) == 1
         assert buckets[0]["range"] == "50-100"
-        # All 8 signals (buy + strong_buy) should be counted
         assert buckets[0]["count"] == 8
