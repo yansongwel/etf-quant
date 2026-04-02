@@ -1,0 +1,80 @@
+[project]
+name = "etf-quant"
+version = "0.1.0"
+description = "中国 ETF 量化投研平台"
+requires-python = ">=3.12"
+dependencies = [
+    "akshare>=1.14",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "backtrader>=1.9",
+    "vectorbt>=0.26",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "redis>=5.0",
+    "pyarrow>=17.0",
+    "python-dotenv>=1.0",
+    "pydantic>=2.9",
+    "celery>=5.4",
+    "httpx>=0.27",
+    "websockets>=16.0",
+    "lightgbm>=4.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pandas-stubs>=2.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pandas-stubs>=2.2",
+]
+
+[project.scripts]
+etf-api = "api.main:main"
+etf-collect = "scripts.collect_daily:main"
+etf-backtest = "engine.backtest:main"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"api/routers/*.py" = ["B008"]  # FastAPI Query/Depends in function signatures is standard
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers -v"
+markers = [
+    "slow: marks tests that hit external APIs or large datasets",
+    "integration: marks integration tests requiring DB",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+
+[tool.coverage.run]
+source = ["data", "factors", "engine", "strategies", "api"]
+omit = ["tests/*", "scripts/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

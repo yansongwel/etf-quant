@@ -1,0 +1,50 @@
+{
+  "rotation": {
+    "params": {
+      "lookback": 10,
+      "top_k": 1,
+      "rebalance_days": 30
+    },
+    "sharpe": 0.798,
+    "return": 0.2483,
+    "max_drawdown": 0.3559,
+    "trades": 77
+  },
+  "multifactor": {
+    "params": {
+      "lookback": 10,
+      "top_k": 1,
+      "rebalance_days": 15,
+      "momentum_weight": 0.6,
+      "value_weight": 0.1,
+      "volatility_weight": 0.3
+    },
+    "sharpe": 1.084,
+    "return": 0.2757,
+    "max_drawdown": 0.2687,
+    "trades": 157
+  },
+  "balance": {
+    "params": {
+      "stock_weight": 0.3,
+      "drift_threshold": 0.1,
+      "min_rebalance_days": 5
+    },
+    "sharpe": 0.027,
+    "return": 0.0288,
+    "max_drawdown": 0.0712,
+    "trades": 6
+  },
+  "grid": {
+    "params": {
+      "grid_count": 5,
+      "grid_width_pct": 0.05,
+      "position_per_grid": 0.1,
+      "symbol": "159915"
+    },
+    "sharpe": -0.004,
+    "return": 0.0209,
+    "max_drawdown": 0.303,
+    "trades": 302
+  }
+}
