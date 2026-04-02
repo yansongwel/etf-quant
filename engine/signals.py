@@ -813,6 +813,37 @@ def generate_signals_batch(
 
         signals.append(sig)
 
+    # V5.2: Multi-signal resonance boost
+    # Data: 3+ buy signals on same day → 69.8% accuracy vs 45.9% for 1-2 signals
+    # Boost tier for buy signals when multiple ETFs trigger simultaneously
+    buy_count = sum(
+        1 for s in signals if s.direction in (SignalDirection.BUY, SignalDirection.STRONG_BUY)
+    )
+    if buy_count >= 3:
+        boosted = []
+        for sig in signals:
+            if (
+                sig.direction in (SignalDirection.BUY, SignalDirection.STRONG_BUY)
+                and sig.tier == SignalTier.WATCH
+            ):
+                sig = TradingSignal(
+                    symbol=sig.symbol,
+                    direction=sig.direction,
+                    strength=sig.strength,
+                    current_price=sig.current_price,
+                    entry_price=sig.entry_price,
+                    target_price=sig.target_price,
+                    stop_loss=sig.stop_loss,
+                    position_pct=sig.position_pct,
+                    reason=sig.reason + f" | 多信号共振({buy_count}只同时买入)",
+                    factors=sig.factors,
+                    score=sig.score,
+                    tier=SignalTier.ACTION,
+                    holding_days=sig.holding_days,
+                )
+            boosted.append(sig)
+        signals = boosted
+
     signals.sort(key=lambda s: s.score, reverse=True)
     return signals
 
