@@ -162,6 +162,34 @@ def evaluate_factors() -> pd.DataFrame:
     return df_results
 
 
+def save_ic_results(results: pd.DataFrame) -> None:
+    """Persist IC results to data_store/factor_ic_history/."""
+    import json
+    from datetime import date
+    from pathlib import Path
+
+    out_dir = Path("data_store/factor_ic_history")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    today = date.today().isoformat()
+    records = results.to_dict(orient="records")
+
+    out_path = out_dir / f"{today}.json"
+    out_path.write_text(
+        json.dumps({"date": today, "factors": records}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    # Also write latest.json for quick access
+    latest_path = out_dir / "latest.json"
+    latest_path.write_text(
+        json.dumps({"date": today, "factors": records}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    print(f"\n  IC results saved to {out_path}")
+
+
 def main() -> None:
     print("═" * 60)
     print("  Factor IC Evaluation — ETF Quant Platform")
@@ -172,6 +200,8 @@ def main() -> None:
     if results.empty:
         print("No results.")
         return
+
+    save_ic_results(results)
 
     header = (
         f"  {'Factor':<22} {'IC1d':>7} {'IC5d':>7} {'Std':>7} {'IR':>6} {'N':>4} {'Verdict':>8}"

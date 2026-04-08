@@ -1,0 +1,58 @@
+{
+  "last_updated": "2026-04-08",
+  "data_range": "2021-04 to 2026-04",
+  "capital": 500000,
+  "strategies": {
+    "multifactor_balanced": {
+      "name": "多因子短期动量配置",
+      "strategy": "multifactor",
+      "params": {
+        "lookback": 10,
+        "top_k": 1,
+        "rebalance_days": 15,
+        "momentum_weight": 0.6,
+        "value_weight": 0.1,
+        "volatility_weight": 0.3
+      },
+      "sharpe": 1.08,
+      "annualized_return": 0.276,
+      "max_drawdown": 0.269,
+      "walk_forward_win_rate": 1.0
+    },
+    "rotation_momentum": {
+      "name": "短期动量轮动",
+      "strategy": "rotation",
+      "params": {
+        "lookback": 10,
+        "top_k": 1,
+        "rebalance_days": 30
+      },
+      "sharpe": 0.78,
+      "annualized_return": 0.241,
+      "max_drawdown": 0.356,
+      "walk_forward_win_rate": 0.6
+    },
+    "rotation_defensive": {
+      "name": "避险宽基轮动",
+      "strategy": "rotation",
+      "params": {
+        "lookback": 20,
+        "top_k": 1,
+        "rebalance_days": 15
+      },
+      "sharpe": 0.90,
+      "annualized_return": 0.233,
+      "max_drawdown": 0.255
+    }
+  },
+  "not_recommended": {
+    "balance": {
+      "best_sharpe": 0.03,
+      "verdict": "不推荐 — 近似零收益"
+    },
+    "grid": {
+      "best_sharpe": -0.004,
+      "verdict": "不推荐 — 负夏普比"
+    }
+  }
+}

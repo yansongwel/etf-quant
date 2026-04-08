@@ -201,6 +201,35 @@ def main() -> None:
         if not spot_df.empty:
             save_snapshot(spot_df)
 
+    # ── Signal recording + accuracy validation ─────────────
+    try:
+        from engine.signals import generate_signals_batch
+        from engine.tracker import record_signals
+
+        all_data = {}
+        for sym in succeeded:
+            df = load_hist(sym)
+            if not df.empty:
+                all_data[sym] = df
+
+        if all_data:
+            signals = generate_signals_batch(all_data)
+            record_signals(signals)
+            buys = sum(1 for s in signals if s.direction.value in ("buy", "strong_buy"))
+            sells = sum(1 for s in signals if s.direction.value in ("sell", "strong_sell"))
+            logger.info(
+                "Signals recorded: %d buy, %d sell, %d hold",
+                buys,
+                sells,
+                len(signals) - buys - sells,
+            )
+
+        from scripts.validate_signals import validate_all
+
+        validate_all(30)
+    except Exception as e:
+        logger.warning("Signal recording/validation skipped: %s", e)
+
     # ── Summary report ────────────────────────────────────
     elapsed = time.monotonic() - start_time
     logger.info("=" * 60)
