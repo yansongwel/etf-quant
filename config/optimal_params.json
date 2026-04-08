@@ -4,7 +4,24 @@
   "capital": 500000,
   "strategies": {
     "multifactor_balanced": {
-      "name": "多因子短期动量配置",
+      "name": "多因子均衡配置（最高夏普）",
+      "strategy": "multifactor",
+      "params": {
+        "lookback": 15,
+        "top_k": 1,
+        "rebalance_days": 20,
+        "momentum_weight": 0.4,
+        "value_weight": 0.3,
+        "volatility_weight": 0.3
+      },
+      "sharpe": 1.10,
+      "annualized_return": 0.240,
+      "max_drawdown": 0.247,
+      "walk_forward_win_rate": 0.8,
+      "note": "2026-04-08 扫描新发现，Sharpe 最高但 WF 胜率低于旧参数"
+    },
+    "multifactor_aggressive": {
+      "name": "多因子动量偏重（最高收益）",
       "strategy": "multifactor",
       "params": {
         "lookback": 10,
@@ -15,9 +32,26 @@
         "volatility_weight": 0.3
       },
       "sharpe": 1.08,
-      "annualized_return": 0.276,
+      "annualized_return": 0.275,
       "max_drawdown": 0.269,
-      "walk_forward_win_rate": 1.0
+      "walk_forward_win_rate": 1.0,
+      "note": "旧最优，WF 100% 全胜，收益最高但回撤也最大"
+    },
+    "multifactor_low_dd": {
+      "name": "多因子低回撤（最稳健）",
+      "strategy": "multifactor",
+      "params": {
+        "lookback": 10,
+        "top_k": 1,
+        "rebalance_days": 30,
+        "momentum_weight": 0.5,
+        "value_weight": 0.2,
+        "volatility_weight": 0.3
+      },
+      "sharpe": 1.06,
+      "annualized_return": 0.235,
+      "max_drawdown": 0.187,
+      "note": "回撤仅 18.7%，适合风险厌恶者"
     },
     "rotation_momentum": {
       "name": "短期动量轮动",

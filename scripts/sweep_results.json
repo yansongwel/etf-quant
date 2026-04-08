@@ -1,13 +1,16 @@
 {
-  "rotation": {
+  "multifactor": {
     "params": {
-      "lookback": 10,
+      "lookback": 15,
       "top_k": 1,
-      "rebalance_days": 30
+      "rebalance_days": 20,
+      "momentum_weight": 0.4,
+      "value_weight": 0.3,
+      "volatility_weight": 0.3
     },
-    "sharpe": 0.78,
-    "return": 0.2414,
-    "max_drawdown": 0.3559,
-    "trades": 77
+    "sharpe": 1.104,
+    "return": 0.2404,
+    "max_drawdown": 0.2471,
+    "trades": 115
   }
 }

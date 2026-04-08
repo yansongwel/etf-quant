@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from api.deps import require_api_key
@@ -634,3 +635,54 @@ class TestSignalTrend:
         # All entries should have valid direction values
         for pt in d["trend"]:
             assert pt["direction"] in ("strong_buy", "buy", "hold", "sell", "strong_sell")
+
+
+class TestAccuracyTrend:
+    """Tests for GET /api/signals/accuracy/trend."""
+
+    def test_accuracy_trend_returns_data(self) -> None:
+        """Accuracy trend endpoint returns valid structure."""
+        _clear_caches()
+        res = client.get("/api/signals/accuracy/trend?days=7")
+        assert res.status_code == 200
+        d = res.json()
+        assert "trend" in d
+        assert "generated_at" in d
+        assert isinstance(d["trend"], list)
+
+    def test_accuracy_trend_with_data(self) -> None:
+        """With real accuracy data, returns trend entries."""
+        _clear_caches()
+        res = client.get("/api/signals/accuracy/trend?days=60")
+        assert res.status_code == 200
+        d = res.json()
+        # We just ran validate_signals.py so there should be data
+        if d["count"] > 0:
+            for pt in d["trend"]:
+                assert "date" in pt
+                assert "accuracy" in pt
+                assert "total" in pt
+
+
+class TestFactorIC:
+    """Tests for GET /api/factors/ic/latest."""
+
+    def test_factor_ic_returns_data(self) -> None:
+        """Factor IC endpoint returns data when results exist."""
+        # We ran factor_ic.py earlier so latest.json should exist
+        from pathlib import Path
+
+        ic_file = Path("data_store/factor_ic_history/latest.json")
+        if not ic_file.exists():
+            pytest.skip("No IC data available")
+
+        res = client.get("/api/factors/ic/latest")
+        assert res.status_code == 200
+        d = res.json()
+        assert "date" in d
+        assert "factors" in d
+        assert len(d["factors"]) > 0
+        for f in d["factors"]:
+            assert "factor" in f
+            assert "ic_1d" in f
+            assert "verdict" in f

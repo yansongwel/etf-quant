@@ -237,3 +237,20 @@ def get_factor_correlation(
     }
     cache_json_set(cache_key, result, ttl=600)
     return result
+
+
+@router.get("/ic/latest")
+def get_factor_ic() -> dict:
+    """Return latest factor IC evaluation results from disk."""
+    import json
+    from pathlib import Path
+
+    ic_file = Path("data_store/factor_ic_history/latest.json")
+    if not ic_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="No IC evaluation results found. Run scripts/factor_ic.py first.",
+        )
+
+    data = json.loads(ic_file.read_text(encoding="utf-8"))
+    return data

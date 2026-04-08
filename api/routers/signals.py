@@ -352,6 +352,41 @@ def get_signal_accuracy(days: int = Query(30, ge=7, le=180)) -> dict:
     return result
 
 
+@router.get("/accuracy/trend")
+def get_accuracy_trend(days: int = Query(30, ge=7, le=90)) -> dict:
+    """Get daily accuracy time series for trend visualization."""
+    import json
+    from datetime import date, timedelta
+
+    from config.settings import settings
+
+    accuracy_dir = settings.data.data_dir / "signal_accuracy"
+    if not accuracy_dir.exists():
+        return {"trend": [], "generated_at": _now_cst()}
+
+    today = date.today()
+    trend = []
+    for days_ago in range(days, 0, -1):
+        d = today - timedelta(days=days_ago)
+        report_path = accuracy_dir / f"{d.isoformat()}.json"
+        if not report_path.exists():
+            continue
+        try:
+            data = json.loads(report_path.read_text(encoding="utf-8"))
+            trend.append(
+                {
+                    "date": d.isoformat(),
+                    "accuracy": data.get("accuracy", 0),
+                    "total": data.get("total_signals", 0),
+                    "correct": data.get("correct", 0),
+                }
+            )
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    return {"trend": trend, "count": len(trend), "generated_at": _now_cst()}
+
+
 @router.get("/alerts")
 def get_price_alerts() -> dict:
     """Check if any positions have hit stop-loss or take-profit levels."""
