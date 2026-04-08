@@ -131,7 +131,14 @@ etf-quant/
 ├── engine/            # 回测引擎 + 信号 + 风控
 │   ├── backtest.py    # 核心引擎 (T+1、佣金、滑点)
 │   ├── metrics.py     # 绩效指标 (收益、夏普、回撤、胜率)
-│   ├── signals.py     # V5.0 信号引擎 (非对称买卖、结构性卖出、5日评估窗口)
+│   ├── signals/       # V5.2 信号引擎包 (拆分为5模块)
+│   │   ├── types.py   # 信号类型 (SignalDirection, SignalTier, TradingSignal)
+│   │   ├── helpers.py # 工具函数 (_safe_last, _safe_at, _volume_ratio)
+│   │   ├── scoring.py # 买卖评分核心 (precompute_factors, score_at_index)
+│   │   ├── generator.py # 单ETF信号生成 (generate_signal, _detect_market_regime)
+│   │   └── batch.py   # 批量信号+仓位 (generate_signals_batch, calculate_positions)
+│   ├── tracker.py     # 信号准确率追踪 (记录→验证→权重调整)
+│   ├── signal_quality.py # Per-ETF 信号置信度评估
 │   ├── flow.py        # 机构大单检测 (量价异常分析)
 │   ├── risk_advisor.py # 风险评估 + 布局建议
 │   ├── sector.py      # 板块轮动分析 (9大板块)
@@ -143,20 +150,22 @@ etf-quant/
 │   ├── balance.py     # 股债平衡策略
 │   ├── grid.py        # 网格交易策略
 │   └── multifactor.py # 多因子打分策略
-├── api/               # FastAPI 后端 (v5.1)
+├── api/               # FastAPI 后端 (v5.2)
 │   ├── main.py        # 应用入口 + CORS + 缓存预热
 │   ├── deps.py        # 认证依赖 (X-API-Key)
-│   └── routers/       # 路由模块 (data, factors, backtest, signals, sector, flow, recommend, portfolio)
-├── web/               # Next.js 前端 Dashboard (9页面已上线)
+│   └── routers/       # 路由模块 (data, factors, backtest, signals, sector, flow, recommend, portfolio, sentiment, system)
+├── web/               # Next.js 前端 Dashboard (12页面已上线)
 ├── tests/
-│   ├── unit/          # 单元测试 (648 tests, 95% coverage)
+│   ├── unit/          # 单元测试 (795 tests, 97.5% coverage)
 │   ├── integration/   # 集成测试 (DB, API)
 │   └── e2e/           # 端到端测试
 ├── scripts/           # 运维脚本 + 分析工具
-│   │   ├── collect_daily.py  # 每日数据采集
-│   │   ├── param_sweep.py    # 策略参数扫描 (808 combos, WF验证)
-│   │   └── factor_ic.py      # 因子 IC 评估 (29因子×16ETF)
-├── config/            # 配置 (settings.py, constants.py)
+│   │   ├── collect_daily.py  # 每日数据采集 (含信号记录+准确率验证)
+│   │   ├── record_signals.py # 独立信号记录脚本
+│   │   ├── validate_signals.py # 信号准确率回溯验证
+│   │   ├── param_sweep.py    # 策略参数扫描 (463 combos, WF验证)
+│   │   └── factor_ic.py      # 因子 IC 评估 (29因子×16ETF, 持久化)
+├── config/            # 配置 (settings.py, constants.py, optimal_params.py/json)
 └── .claude/           # Claude Code 配置 (hooks, rules, settings)
 ```
 
@@ -319,7 +328,10 @@ PYTHONPATH=. uv run python -m engine.backtest --strategy rotation --start 2020-0
 3. **Backtrader 做最终验证** — 更真实的执行模拟（T+1 + 滑点）
 4. **TimescaleDB 而非 InfluxDB** — SQL 兼容性好，方便与元数据表 JOIN
 5. **Parquet 做本地回测存储** — 最快的本地 I/O，列式格式适合时序切片
-6. **V5.0 信号引擎** — 非对称买卖设计：买入用 IC 加权均值回归（阈值20分+3因子共识），卖出仅用结构性趋势破坏信号（ATR止损+MA死叉+RSI背离+放量见顶，需2+信号共振）；5日评估窗口；买入准确率58.2%(T+5)/卖出修正为正确方向；高分信号(50+)准确率80%
+6. **V5.2 信号引擎** — 非对称买卖设计：买入用 IC 加权均值回归（阈值20分+3因子共识），卖出仅用结构性趋势破坏信号（reversal_in_trend 76%准确率+死叉缩量 62%，需2+信号共振）；引擎已拆分为 `engine/signals/` 包（types/helpers/scoring/generator/batch 5模块）
+7. **信号准确率自动追踪** — `collect_daily.py` 每日自动记录信号并 T+5 回溯验证，结果持久化到 `data_store/signal_accuracy/`，API `GET /api/signals/accuracy/trend` 提供趋势数据
+8. **因子IC持久化评估** — `scripts/factor_ic.py` 输出到 `data_store/factor_ic_history/`，API `GET /api/factors/ic/latest`；ret_5d(IR=-0.97)最稳定
+9. **6个最优策略配置** — `config/optimal_params.py` + `.json` 双格式持久化：多因子3个(Sharpe 1.06-1.10) + 轮动3个(Sharpe 0.78-0.90)
 7. **API 认证仅保护写端点** — 读取端点（信号/板块/回测）无需认证，前端可直接访问
 8. **数据采集用北京时间** — A股使用 CST(UTC+8)，采集脚本判断交易日用北京时间而非服务器 UTC
 9. **三层数据源架构** — AkShare(历史全量) → 腾讯K线API(缺口回填) → 腾讯行情API(盘中实时)，自动 fallback
