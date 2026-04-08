@@ -1,7 +1,7 @@
 """Optimal strategy parameters — derived from exhaustive backtesting.
 
-Last updated: 2026-03-31
-Data range: 2021-03 to 2026-03 (5 years)
+Last updated: 2026-04-08
+Data range: 2021-04 to 2026-04 (5 years)
 Capital: ¥500,000
 Sweep: 175 rotation + 288 multifactor + 120 balance + 225 grid combos
 
@@ -12,7 +12,8 @@ from __future__ import annotations
 
 # ── Strategy 1: 最稳策略 — 多因子均衡配置 ────────────────
 # Sharpe 1.08, 回撤 26.9%, 年化 27.6% — WF 100% 窗口盈利
-# 2026-03-31 sweep: 288 combos → top by Sharpe after weight filter
+# 2026-04-08 sweep: 288 combos → top by Sharpe after weight filter
+# NOTE: 2026-04-08 发现新参数 Sharpe=1.10 但 WF 仅 80%, 保留旧参数为默认
 BEST_BALANCED = {
     "name": "多因子短期动量配置",
     "strategy": "multifactor",
@@ -72,8 +73,112 @@ BEST_BALANCED = {
     },
 }
 
+# ── Strategy 1b: 最高夏普 — 多因子均衡（2026-04-08 新发现）──
+# Sharpe 1.10, 回撤 24.7%, 年化 24.0% — WF 80% 窗口盈利
+# 权重更均衡(0.4/0.3/0.3), 但 WF 胜率低于 BEST_BALANCED
+BEST_SHARPE = {
+    "name": "多因子均衡配置（最高夏普）",
+    "strategy": "multifactor",
+    "symbols": [
+        "510300",
+        "518880",
+        "511010",
+        "512480",
+        "513100",
+        "510500",
+        "159915",
+        "515220",
+        "512880",
+        "562800",
+        "159819",
+        "515030",
+    ],
+    "symbol_names": [
+        "沪深300ETF",
+        "黄金ETF",
+        "国债ETF",
+        "半导体ETF",
+        "纳指ETF",
+        "中证500ETF",
+        "创业板ETF",
+        "煤炭ETF",
+        "证券ETF",
+        "芯片ETF",
+        "人工智能ETF",
+        "新能源ETF",
+    ],
+    "params": {
+        "lookback": 15,
+        "top_k": 1,
+        "rebalance_days": 20,
+        "momentum_weight": 0.4,
+        "value_weight": 0.3,
+        "volatility_weight": 0.3,
+    },
+    "backtest": {
+        "total_return": 2.04,
+        "annualized_return": 0.240,
+        "sharpe_ratio": 1.10,
+        "max_drawdown": 0.247,
+    },
+    "walk_forward": {
+        "windows": 5,
+        "win_rate": 0.8,
+        "avg_test_return": 0.4748,
+        "verdict": "通过",
+    },
+}
+
+# ── Strategy 1c: 最低回撤 — 多因子稳健 ─────────────────────
+# Sharpe 1.06, 回撤仅 18.7%, 年化 23.5% — 适合风险厌恶者
+BEST_LOW_DD = {
+    "name": "多因子低回撤（最稳健）",
+    "strategy": "multifactor",
+    "symbols": [
+        "510300",
+        "518880",
+        "511010",
+        "512480",
+        "513100",
+        "510500",
+        "159915",
+        "515220",
+        "512880",
+        "562800",
+        "159819",
+        "515030",
+    ],
+    "symbol_names": [
+        "沪深300ETF",
+        "黄金ETF",
+        "国债ETF",
+        "半导体ETF",
+        "纳指ETF",
+        "中证500ETF",
+        "创业板ETF",
+        "煤炭ETF",
+        "证券ETF",
+        "芯片ETF",
+        "人工智能ETF",
+        "新能源ETF",
+    ],
+    "params": {
+        "lookback": 10,
+        "top_k": 1,
+        "rebalance_days": 30,
+        "momentum_weight": 0.5,
+        "value_weight": 0.2,
+        "volatility_weight": 0.3,
+    },
+    "backtest": {
+        "annualized_return": 0.235,
+        "sharpe_ratio": 1.06,
+        "max_drawdown": 0.187,
+    },
+}
+
 # ── Strategy 2: 最高收益策略 — 短期动量轮动 ──────────────
-# Sharpe 0.80, 年化 24.8%, 回撤 35.6% — WF 60% 窗口盈利
+# Sharpe 0.78, 年化 24.1%, 回撤 35.6% — WF 60% 窗口盈利
 # 2026-03-31 sweep: 175 combos → lookback=10 + 月度调仓最优
 BEST_RETURN = {
     "name": "短期动量轮动",
@@ -183,7 +288,7 @@ GRID_NOTE = {
 }
 
 # ── All strategies sorted by Sharpe ──────────────────────
-ALL_OPTIMAL = [BEST_BALANCED, BEST_DEFENSIVE, BEST_GROWTH, BEST_RETURN]
+ALL_OPTIMAL = [BEST_BALANCED, BEST_SHARPE, BEST_LOW_DD, BEST_DEFENSIVE, BEST_GROWTH, BEST_RETURN]
 
 
 # ── Signal Engine V5.0: Asymmetric Buy/Sell Redesign ────────
